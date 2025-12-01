@@ -1,0 +1,16 @@
+# Known filenames for Red Alert MIX files
+# Used for hash resolution testing
+
+# Audio files
+SOUNDS.AUD
+SPEECH.AUD
+SCORES.AUD
+
+# Data files
+RULES.INI
+ART.INI
+TEMPERAT.PAL
+
+# Nested archives
+CONQUER.MIX
+LOCAL.MIX

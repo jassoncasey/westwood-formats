@@ -1,0 +1,15 @@
+# Build output
+impl/build/
+
+# Test data (downloaded via scripts/setup_testdata.sh)
+testdata/
+downloads/
+*.ISO
+*.iso
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*~
