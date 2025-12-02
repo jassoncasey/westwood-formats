@@ -1,19 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
-project(mix-tool
+project(westwood-tools
     VERSION 0.1.0
     LANGUAGES CXX
-    DESCRIPTION "Library and CLI for Westwood MIX archive files"
+    DESCRIPTION "Libraries and CLI tools for Westwood game formats"
 )
 
 # --------------------------------------------------------------------
 # Build options
 # --------------------------------------------------------------------
 
-option(MIX_BUILD_SHARED   "Build shared library"           OFF)
-option(MIX_BUILD_STATIC   "Build static library"           ON)
-option(MIX_BUILD_CLI      "Build command-line tool"        ON)
-option(MIX_BUILD_TESTS    "Build tests"                    OFF)
-option(MIX_INSTALL        "Generate install target"        ON)
+option(WWD_BUILD_SHARED   "Build shared library"           OFF)
+option(WWD_BUILD_STATIC   "Build static library"           ON)
+option(WWD_BUILD_CLI      "Build command-line tools"       ON)
+option(WWD_BUILD_TESTS    "Build tests"                    OFF)
+option(WWD_INSTALL        "Generate install target"        ON)
 
 # --------------------------------------------------------------------
 # Global settings
@@ -23,16 +23,12 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# Position independent code (required for shared lib, good practice for static)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# RPATH settings for installed binaries
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-# Default to Release if not specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -41,16 +37,11 @@ endif()
 # Compiler settings
 # --------------------------------------------------------------------
 
-# Warning flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
-    # Hide symbols by default (expose only MIX_API marked functions)
     add_compile_options(-fvisibility=hidden)
 elseif(MSVC)
-    add_compile_options(/W4 /WX)
-    # UTF-8 source and execution charset
-    add_compile_options(/utf-8)
-    # Disable warnings about deprecated POSIX names
+    add_compile_options(/W4 /WX /utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
@@ -58,144 +49,140 @@ endif()
 # Library sources
 # --------------------------------------------------------------------
 
-set(LIBMIX_SOURCES
-    libmix/src/error.cpp
-    libmix/src/hash.cpp
-    libmix/src/mix_reader.cpp
-    libmix/src/mix_c.cpp
+set(LIBWESTWOOD_SOURCES
+    libwestwood/src/error.cpp
+    libwestwood/src/io.cpp
+    libwestwood/src/lcw.cpp
+    libwestwood/src/mix.cpp
+    libwestwood/src/vqa.cpp
+    libwestwood/src/aud.cpp
+    libwestwood/src/shp.cpp
+    libwestwood/src/wsa.cpp
+    libwestwood/src/tmp.cpp
+    libwestwood/src/pal.cpp
+    libwestwood/src/fnt.cpp
 )
 
-set(LIBMIX_HEADERS
-    libmix/include/mix/export.h
-    libmix/include/mix/types.h
-    libmix/include/mix/error.h
-    libmix/include/mix/mix.h
-    libmix/include/mix/mix_c.h
+set(LIBWESTWOOD_HEADERS
+    libwestwood/include/westwood/export.h
+    libwestwood/include/westwood/error.h
+    libwestwood/include/westwood/io.h
+    libwestwood/include/westwood/lcw.h
+    libwestwood/include/westwood/mix.h
+    libwestwood/include/westwood/vqa.h
+    libwestwood/include/westwood/aud.h
+    libwestwood/include/westwood/shp.h
+    libwestwood/include/westwood/wsa.h
+    libwestwood/include/westwood/tmp.h
+    libwestwood/include/westwood/pal.h
+    libwestwood/include/westwood/fnt.h
 )
 
 # --------------------------------------------------------------------
 # Static library
 # --------------------------------------------------------------------
 
-if(MIX_BUILD_STATIC)
-    add_library(mix_static STATIC ${LIBMIX_SOURCES})
-    target_include_directories(mix_static PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libmix/include>
+if(WWD_BUILD_STATIC)
+    add_library(westwood_static STATIC ${LIBWESTWOOD_SOURCES})
+    target_include_directories(westwood_static PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libwestwood/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_compile_definitions(mix_static PUBLIC MIX_STATIC)
-    set_target_properties(mix_static PROPERTIES
-        OUTPUT_NAME mix
-        PUBLIC_HEADER "${LIBMIX_HEADERS}"
+    target_compile_definitions(westwood_static PUBLIC WWD_STATIC)
+    set_target_properties(westwood_static PROPERTIES
+        OUTPUT_NAME westwood
+        PUBLIC_HEADER "${LIBWESTWOOD_HEADERS}"
     )
-    # Alias for use in subdirectories
-    add_library(mix::static ALIAS mix_static)
+    add_library(westwood::static ALIAS westwood_static)
 endif()
 
 # --------------------------------------------------------------------
 # Shared library
 # --------------------------------------------------------------------
 
-if(MIX_BUILD_SHARED)
-    add_library(mix_shared SHARED ${LIBMIX_SOURCES})
-    target_include_directories(mix_shared PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libmix/include>
+if(WWD_BUILD_SHARED)
+    add_library(westwood_shared SHARED ${LIBWESTWOOD_SOURCES})
+    target_include_directories(westwood_shared PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libwestwood/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_compile_definitions(mix_shared PRIVATE MIX_BUILDING)
-    set_target_properties(mix_shared PROPERTIES
-        OUTPUT_NAME mix
+    target_compile_definitions(westwood_shared PRIVATE WWD_BUILDING)
+    set_target_properties(westwood_shared PROPERTIES
+        OUTPUT_NAME westwood
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
-        PUBLIC_HEADER "${LIBMIX_HEADERS}"
+        PUBLIC_HEADER "${LIBWESTWOOD_HEADERS}"
     )
-    # Alias for use in subdirectories
-    add_library(mix::shared ALIAS mix_shared)
+    add_library(westwood::shared ALIAS westwood_shared)
 endif()
 
-# Default library target (prefer static)
-if(MIX_BUILD_STATIC)
-    add_library(mix::mix ALIAS mix_static)
-elseif(MIX_BUILD_SHARED)
-    add_library(mix::mix ALIAS mix_shared)
+# Default library target
+if(WWD_BUILD_STATIC)
+    add_library(westwood::westwood ALIAS westwood_static)
+elseif(WWD_BUILD_SHARED)
+    add_library(westwood::westwood ALIAS westwood_shared)
 endif()
 
 # --------------------------------------------------------------------
-# CLI tool
+# CLI tools
 # --------------------------------------------------------------------
 
-if(MIX_BUILD_CLI)
-    add_executable(mix-tool
-        mix-tool/main.cpp
-        mix-tool/cmd_list.cpp
-        mix-tool/format.cpp
-    )
-    # Link against static library if available, else shared
-    if(MIX_BUILD_STATIC)
-        target_link_libraries(mix-tool PRIVATE mix_static)
-    elseif(MIX_BUILD_SHARED)
-        target_link_libraries(mix-tool PRIVATE mix_shared)
-    endif()
+if(WWD_BUILD_CLI)
+    # Helper function for tool creation
+    function(add_wwd_tool name)
+        add_executable(${name} ${ARGN})
+        if(WWD_BUILD_STATIC)
+            target_link_libraries(${name} PRIVATE westwood_static)
+        elseif(WWD_BUILD_SHARED)
+            target_link_libraries(${name} PRIVATE westwood_shared)
+        endif()
+    endfunction()
+
+    add_wwd_tool(mix-tool mix-tool/main.cpp)
+    add_wwd_tool(vqa-tool vqa-tool/main.cpp)
+    add_wwd_tool(aud-tool aud-tool/main.cpp)
+    add_wwd_tool(shp-tool shp-tool/main.cpp)
+    add_wwd_tool(wsa-tool wsa-tool/main.cpp)
+    add_wwd_tool(tmp-tool tmp-tool/main.cpp)
+    add_wwd_tool(pal-tool pal-tool/main.cpp)
+    add_wwd_tool(fnt-tool fnt-tool/main.cpp)
 endif()
 
 # --------------------------------------------------------------------
 # Installation
 # --------------------------------------------------------------------
 
-if(MIX_INSTALL)
+if(WWD_INSTALL)
     include(GNUInstallDirs)
 
-    # Install libraries
-    if(MIX_BUILD_STATIC)
-        install(TARGETS mix_static
-            EXPORT mix-targets
+    if(WWD_BUILD_STATIC)
+        install(TARGETS westwood_static
+            EXPORT westwood-targets
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mix
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/westwood
         )
     endif()
 
-    if(MIX_BUILD_SHARED)
-        install(TARGETS mix_shared
-            EXPORT mix-targets
+    if(WWD_BUILD_SHARED)
+        install(TARGETS westwood_shared
+            EXPORT westwood-targets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}  # Windows DLLs
-            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mix
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/westwood
         )
     endif()
 
-    # Install CLI tool
-    if(MIX_BUILD_CLI)
-        install(TARGETS mix-tool
+    if(WWD_BUILD_CLI)
+        install(TARGETS mix-tool vqa-tool aud-tool shp-tool
+                        wsa-tool tmp-tool pal-tool fnt-tool
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
     endif()
 
-    # Export targets for find_package() support
-    install(EXPORT mix-targets
-        FILE mix-targets.cmake
-        NAMESPACE mix::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mix
-    )
-
-    # Package config file
-    include(CMakePackageConfigHelpers)
-
-    configure_package_config_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/mix-config.cmake.in
-        ${CMAKE_CURRENT_BINARY_DIR}/mix-config.cmake
-        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mix
-    )
-
-    write_basic_package_version_file(
-        ${CMAKE_CURRENT_BINARY_DIR}/mix-config-version.cmake
-        VERSION ${PROJECT_VERSION}
-        COMPATIBILITY SameMajorVersion
-    )
-
-    install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/mix-config.cmake
-        ${CMAKE_CURRENT_BINARY_DIR}/mix-config-version.cmake
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mix
+    install(EXPORT westwood-targets
+        FILE westwood-targets.cmake
+        NAMESPACE westwood::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/westwood
     )
 endif()
 
@@ -204,10 +191,10 @@ endif()
 # --------------------------------------------------------------------
 
 message(STATUS "")
-message(STATUS "libmix ${PROJECT_VERSION} configuration:")
+message(STATUS "libwestwood ${PROJECT_VERSION} configuration:")
 message(STATUS "  Build type:     ${CMAKE_BUILD_TYPE}")
-message(STATUS "  Static library: ${MIX_BUILD_STATIC}")
-message(STATUS "  Shared library: ${MIX_BUILD_SHARED}")
-message(STATUS "  CLI tool:       ${MIX_BUILD_CLI}")
-message(STATUS "  Install:        ${MIX_INSTALL}")
+message(STATUS "  Static library: ${WWD_BUILD_STATIC}")
+message(STATUS "  Shared library: ${WWD_BUILD_SHARED}")
+message(STATUS "  CLI tools:      ${WWD_BUILD_CLI}")
+message(STATUS "  Install:        ${WWD_INSTALL}")
 message(STATUS "")
