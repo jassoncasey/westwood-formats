@@ -6,6 +6,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace wwd {
 
@@ -37,6 +38,10 @@ public:
     // Derived properties
     float duration() const;
     uint32_t sample_count() const;
+
+    // Decode audio to 16-bit signed PCM samples
+    // Returns interleaved samples for stereo (L,R,L,R,...)
+    Result<std::vector<int16_t>> decode() const;
 
 private:
     AudReader();

@@ -1,13 +1,16 @@
 #include <westwood/shp.h>
+#include <westwood/lcw.h>
 #include <westwood/io.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace wwd {
 
 struct ShpReaderImpl {
     ShpInfo info{};
     std::vector<ShpFrameInfo> frames;
+    std::vector<uint8_t> data;  // Full file data for decoding
 };
 
 struct ShpReader::Impl : ShpReaderImpl {};
@@ -49,6 +52,7 @@ static Result<void> parse_shp_td(ShpReaderImpl& impl,
     impl.info.frame_count = frame_count;
     impl.info.max_width = read_u16(p + 6);
     impl.info.max_height = read_u16(p + 8);
+    impl.info.delta_buffer_size = read_u16(p + 10);
     impl.info.file_size = static_cast<uint32_t>(data.size());
 
     // Offset table starts at byte 14
@@ -86,7 +90,19 @@ static Result<void> parse_shp_td(ShpReaderImpl& impl,
         frame.data_size = next_offset - frame.data_offset;
 
         impl.frames.push_back(frame);
+
+        // Count frame types
+        if (frame.format & 0x80) {
+            impl.info.lcw_frames++;
+        } else if (frame.format & 0x40 || frame.format & 0x20) {
+            impl.info.xor_frames++;
+        } else {
+            impl.info.lcw_frames++;  // Raw frames count as base frames
+        }
     }
+
+    // Store data for later decoding
+    impl.data.assign(data.begin(), data.end());
 
     return {};
 }
@@ -131,6 +147,112 @@ Result<std::unique_ptr<ShpReader>> ShpReader::open(
     auto result = parse_shp(*reader->impl_, data);
     if (!result) return std::unexpected(result.error());
     return reader;
+}
+
+Result<std::vector<uint8_t>> ShpReader::decode_frame(
+    size_t frame_index,
+    std::vector<uint8_t>& delta_buffer) const
+{
+    if (frame_index >= impl_->frames.size()) {
+        return std::unexpected(
+            make_error(ErrorCode::InvalidKey, "Frame index out of range"));
+    }
+
+    const auto& frame = impl_->frames[frame_index];
+    const auto& info = impl_->info;
+    size_t frame_size = static_cast<size_t>(info.max_width) * info.max_height;
+
+    // Ensure delta buffer is properly sized
+    if (delta_buffer.size() != frame_size) {
+        delta_buffer.resize(frame_size, 0);
+    }
+
+    std::vector<uint8_t> output(frame_size, 0);
+
+    // Get frame data
+    if (frame.data_offset + frame.data_size > impl_->data.size()) {
+        return std::unexpected(
+            make_error(ErrorCode::UnexpectedEof, "Frame data out of bounds"));
+    }
+
+    std::span<const uint8_t> frame_data(
+        impl_->data.data() + frame.data_offset,
+        frame.data_size);
+
+    uint8_t format = frame.format;
+
+    if (format == 0x00) {
+        // Raw data - just copy (rare but possible)
+        if (frame_data.size() >= frame_size) {
+            std::memcpy(output.data(), frame_data.data(), frame_size);
+        } else {
+            std::memcpy(output.data(), frame_data.data(), frame_data.size());
+        }
+    }
+    else if (format & 0x80) {
+        // LCW compressed base frame
+        auto decomp = lcw_decompress(frame_data, frame_size);
+        if (!decomp) {
+            return std::unexpected(decomp.error());
+        }
+        output = std::move(*decomp);
+        if (output.size() < frame_size) {
+            output.resize(frame_size, 0);
+        }
+    }
+    else if (format & 0x40) {
+        // XOR with previous frame (delta_buffer contains previous frame)
+        // Frame data is raw delta bytes
+        size_t copy_len = std::min(frame_data.size(), frame_size);
+        for (size_t i = 0; i < copy_len; ++i) {
+            output[i] = delta_buffer[i] ^ frame_data[i];
+        }
+        for (size_t i = copy_len; i < frame_size; ++i) {
+            output[i] = delta_buffer[i];
+        }
+    }
+    else if (format & 0x20) {
+        // XORLCW: XOR with reference frame, LCW compressed delta
+        auto decomp = lcw_decompress(frame_data, frame_size);
+        if (!decomp) {
+            return std::unexpected(decomp.error());
+        }
+        // XOR decompressed data with delta buffer
+        for (size_t i = 0; i < frame_size && i < decomp->size(); ++i) {
+            output[i] = delta_buffer[i] ^ (*decomp)[i];
+        }
+        for (size_t i = decomp->size(); i < frame_size; ++i) {
+            output[i] = delta_buffer[i];
+        }
+    }
+    else {
+        // Unknown format - treat as raw
+        size_t copy_len = std::min(frame_data.size(), frame_size);
+        std::memcpy(output.data(), frame_data.data(), copy_len);
+    }
+
+    // Update delta buffer for next frame
+    delta_buffer = output;
+
+    return output;
+}
+
+Result<std::vector<std::vector<uint8_t>>> ShpReader::decode_all_frames() const
+{
+    std::vector<std::vector<uint8_t>> result;
+    result.reserve(impl_->frames.size());
+
+    std::vector<uint8_t> delta_buffer;
+
+    for (size_t i = 0; i < impl_->frames.size(); ++i) {
+        auto frame = decode_frame(i, delta_buffer);
+        if (!frame) {
+            return std::unexpected(frame.error());
+        }
+        result.push_back(std::move(*frame));
+    }
+
+    return result;
 }
 
 } // namespace wwd

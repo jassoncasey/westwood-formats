@@ -13,7 +13,8 @@ namespace wwd {
 struct FntGlyphInfo {
     uint8_t  width;
     uint8_t  height;
-    uint16_t offset;   // offset into data block
+    uint8_t  y_offset;  // vertical offset from baseline
+    uint16_t offset;    // offset into data block
 };
 
 struct FntInfo {
@@ -35,6 +36,13 @@ public:
 
     const FntInfo& info() const;
     const std::vector<FntGlyphInfo>& glyphs() const;
+
+    // Decode a single glyph to 4-bit grayscale values (0-15)
+    // Returns empty vector for glyphs with width 0
+    std::vector<uint8_t> decode_glyph(size_t glyph_index) const;
+
+    // Get the source filename (if available)
+    const std::string& source_filename() const;
 
 private:
     FntReader();

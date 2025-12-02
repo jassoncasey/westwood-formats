@@ -6,6 +6,7 @@ namespace wwd {
 struct TmpReaderImpl {
     TmpInfo info{};
     std::vector<TmpTileInfo> tiles;
+    std::vector<uint8_t> data;  // Full file data for decoding
 };
 
 struct TmpReader::Impl : TmpReaderImpl {};
@@ -101,6 +102,7 @@ static Result<void> parse_tmp(TmpReaderImpl& impl,
     impl.tiles.reserve(impl.info.tile_count);
 
     const uint8_t* index = p + impl.info.index_start;
+    uint16_t empty_count = 0;
     for (uint32_t i = 0; i < impl.info.tile_count; ++i) {
         uint32_t offset = read_u32(index + i * 4);
 
@@ -109,8 +111,14 @@ static Result<void> parse_tmp(TmpReaderImpl& impl,
         tile.size = tile_size;
         tile.valid = (offset != 0);
 
+        if (!tile.valid) {
+            empty_count++;
+        }
+
         impl.tiles.push_back(tile);
     }
+
+    impl.info.empty_count = empty_count;
 
     return {};
 }
@@ -118,16 +126,62 @@ static Result<void> parse_tmp(TmpReaderImpl& impl,
 Result<std::unique_ptr<TmpReader>> TmpReader::open(const std::string& path) {
     auto data = load_file(path);
     if (!data) return std::unexpected(data.error());
-    return open(std::span(*data));
+
+    auto reader = std::unique_ptr<TmpReader>(new TmpReader());
+    reader->impl_->data = std::move(*data);
+
+    auto result = parse_tmp(*reader->impl_, std::span(reader->impl_->data));
+    if (!result) return std::unexpected(result.error());
+
+    return reader;
 }
 
 Result<std::unique_ptr<TmpReader>> TmpReader::open(
     std::span<const uint8_t> data)
 {
     auto reader = std::unique_ptr<TmpReader>(new TmpReader());
-    auto result = parse_tmp(*reader->impl_, data);
+    reader->impl_->data.assign(data.begin(), data.end());
+
+    auto result = parse_tmp(*reader->impl_, std::span(reader->impl_->data));
     if (!result) return std::unexpected(result.error());
+
     return reader;
+}
+
+std::vector<uint8_t> TmpReader::decode_tile(size_t tile_index) const {
+    if (tile_index >= impl_->tiles.size()) {
+        return {};
+    }
+
+    const auto& tile = impl_->tiles[tile_index];
+    if (!tile.valid) {
+        return {};
+    }
+
+    // Check bounds
+    if (tile.offset + tile.size > impl_->data.size()) {
+        return {};
+    }
+
+    // Return the raw tile data (palette indices)
+    return std::vector<uint8_t>(
+        impl_->data.begin() + tile.offset,
+        impl_->data.begin() + tile.offset + tile.size);
+}
+
+std::vector<std::vector<uint8_t>> TmpReader::decode_all_tiles() const {
+    std::vector<std::vector<uint8_t>> result;
+    result.reserve(impl_->tiles.size());
+
+    for (size_t i = 0; i < impl_->tiles.size(); ++i) {
+        result.push_back(decode_tile(i));
+    }
+
+    return result;
+}
+
+uint32_t TmpReader::valid_tile_count() const {
+    return impl_->info.tile_count - impl_->info.empty_count;
 }
 
 } // namespace wwd

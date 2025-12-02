@@ -1,11 +1,14 @@
 #pragma once
 
 #include <westwood/error.h>
+#include <westwood/pal.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace wwd {
 
@@ -33,14 +36,22 @@ struct VqaAudioInfo {
     uint32_t sample_rate;
     uint8_t  channels;
     uint8_t  bits;
+    uint8_t  codec_id;      // 0=SND0 (raw), 1=SND1 (Westwood ADPCM), 2=SND2 (IMA ADPCM)
     bool     has_audio;
-    bool     compressed;    // SND2 (IMA ADPCM) vs SND0
+    bool     compressed;    // SND1/SND2 vs SND0
 };
 
 struct VqaInfo {
     VqaHeader header;
     VqaAudioInfo audio;
     uint64_t file_size;
+};
+
+// Decoded frame in RGB format (3 bytes per pixel)
+struct VqaFrame {
+    std::vector<uint8_t> rgb;  // width * height * 3
+    uint16_t width;
+    uint16_t height;
 };
 
 class VqaReader {
@@ -56,6 +67,13 @@ public:
     float duration() const;
     bool is_hicolor() const;
     uint32_t block_count() const;
+
+    // Decode all video frames to RGB
+    Result<std::vector<VqaFrame>> decode_video() const;
+
+    // Decode all audio to 16-bit signed PCM samples
+    // Returns empty vector if no audio
+    Result<std::vector<int16_t>> decode_audio() const;
 
 private:
     VqaReader();

@@ -34,7 +34,10 @@ struct ShpInfo {
     uint16_t  frame_count;
     uint16_t  max_width;
     uint16_t  max_height;
+    uint16_t  delta_buffer_size;  // largest frame uncompressed size
     uint32_t  file_size;
+    uint32_t  lcw_frames;   // count of LCW base frames
+    uint32_t  xor_frames;   // count of XOR delta frames
 };
 
 class ShpReader {
@@ -46,6 +49,14 @@ public:
 
     const ShpInfo& info() const;
     const std::vector<ShpFrameInfo>& frames() const;
+
+    // Decode a frame to palette indices (8-bit per pixel)
+    // The delta buffer maintains state across frames for XOR delta decoding
+    Result<std::vector<uint8_t>> decode_frame(size_t frame_index,
+                                               std::vector<uint8_t>& delta_buffer) const;
+
+    // Convenience: decode all frames
+    Result<std::vector<std::vector<uint8_t>>> decode_all_frames() const;
 
 private:
     ShpReader();

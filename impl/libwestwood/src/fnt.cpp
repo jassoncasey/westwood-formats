@@ -8,6 +8,9 @@ namespace wwd {
 struct FntReaderImpl {
     FntInfo info{};
     std::vector<FntGlyphInfo> glyphs;
+    std::vector<uint8_t> data;  // Full file data for decoding
+    std::string source_filename;
+    uint16_t data_blk_offset = 0;  // Offset to glyph data
 };
 
 struct FntReader::Impl : FntReaderImpl {};
@@ -18,6 +21,9 @@ FntReader::~FntReader() = default;
 const FntInfo& FntReader::info() const { return impl_->info; }
 const std::vector<FntGlyphInfo>& FntReader::glyphs() const {
     return impl_->glyphs;
+}
+const std::string& FntReader::source_filename() const {
+    return impl_->source_filename;
 }
 
 // FNT Version 3 (TD/RA) format:
@@ -78,6 +84,7 @@ static Result<void> parse_fnt(FntReaderImpl& impl,
 
     auto data_blk = r.read_u16();
     if (!data_blk) return std::unexpected(data_blk.error());
+    impl.data_blk_offset = *data_blk;
 
     auto height_blk = r.read_u16();
     if (!height_blk) return std::unexpected(height_blk.error());
@@ -120,7 +127,7 @@ static Result<void> parse_fnt(FntReaderImpl& impl,
         glyph.offset = read_u16(offsets + i * 2);
         glyph.width = widths[i];
         // Height block has 2 bytes per glyph: y_offset, height
-        // We just read the height for now
+        glyph.y_offset = heights[i * 2];
         glyph.height = heights[i * 2 + 1];
         impl.glyphs.push_back(glyph);
     }
@@ -133,16 +140,72 @@ static Result<void> parse_fnt(FntReaderImpl& impl,
 Result<std::unique_ptr<FntReader>> FntReader::open(const std::string& path) {
     auto data = load_file(path);
     if (!data) return std::unexpected(data.error());
-    return open(std::span(*data));
+
+    auto reader = std::unique_ptr<FntReader>(new FntReader());
+    reader->impl_->data = std::move(*data);
+
+    // Extract filename from path
+    size_t pos = path.find_last_of("/\\");
+    reader->impl_->source_filename = (pos != std::string::npos)
+        ? path.substr(pos + 1) : path;
+
+    auto result = parse_fnt(*reader->impl_, std::span(reader->impl_->data));
+    if (!result) return std::unexpected(result.error());
+
+    return reader;
 }
 
 Result<std::unique_ptr<FntReader>> FntReader::open(
     std::span<const uint8_t> data)
 {
     auto reader = std::unique_ptr<FntReader>(new FntReader());
-    auto result = parse_fnt(*reader->impl_, data);
+    reader->impl_->data.assign(data.begin(), data.end());
+    reader->impl_->source_filename = "unknown.fnt";
+
+    auto result = parse_fnt(*reader->impl_, std::span(reader->impl_->data));
     if (!result) return std::unexpected(result.error());
+
     return reader;
+}
+
+std::vector<uint8_t> FntReader::decode_glyph(size_t glyph_index) const {
+    if (glyph_index >= impl_->glyphs.size()) {
+        return {};
+    }
+
+    const auto& glyph = impl_->glyphs[glyph_index];
+    if (glyph.width == 0 || glyph.height == 0) {
+        return {};
+    }
+
+    // FNT glyphs are stored as 4-bit packed pixels (2 pixels per byte)
+    // Width is rounded up to even number for packing
+    size_t row_bytes = (glyph.width + 1) / 2;
+    size_t glyph_size = row_bytes * glyph.height;
+
+    // Calculate actual offset in file
+    size_t data_offset = impl_->data_blk_offset + glyph.offset;
+    if (data_offset + glyph_size > impl_->data.size()) {
+        return {};
+    }
+
+    // Decode 4-bit packed data to 8-bit values (0-15)
+    std::vector<uint8_t> result(glyph.width * glyph.height);
+
+    const uint8_t* src = impl_->data.data() + data_offset;
+    for (uint8_t y = 0; y < glyph.height; ++y) {
+        for (uint8_t x = 0; x < glyph.width; ++x) {
+            size_t byte_idx = y * row_bytes + x / 2;
+            uint8_t packed = src[byte_idx];
+
+            // Even x: high nibble, odd x: low nibble
+            uint8_t value = (x & 1) ? (packed & 0x0F) : ((packed >> 4) & 0x0F);
+
+            result[y * glyph.width + x] = value;
+        }
+    }
+
+    return result;
 }
 
 } // namespace wwd

@@ -23,6 +23,7 @@ struct TmpInfo {
     uint16_t  tile_width;   // 24 for TD/RA
     uint16_t  tile_height;  // 24 for TD/RA
     uint16_t  tile_count;
+    uint16_t  empty_count;  // count of invalid/empty tiles
     uint32_t  index_start;
     uint32_t  index_end;
     uint32_t  image_start;
@@ -38,6 +39,16 @@ public:
 
     const TmpInfo& info() const;
     const std::vector<TmpTileInfo>& tiles() const;
+
+    // Decode a single tile to palette indices
+    // Returns empty vector for invalid tiles
+    std::vector<uint8_t> decode_tile(size_t tile_index) const;
+
+    // Decode all tiles (valid tiles only - empty tiles are skipped)
+    std::vector<std::vector<uint8_t>> decode_all_tiles() const;
+
+    // Count of valid (non-empty) tiles
+    uint32_t valid_tile_count() const;
 
 private:
     TmpReader();

@@ -1,5 +1,8 @@
 #include <westwood/vqa.h>
 #include <westwood/io.h>
+#include <westwood/lcw.h>
+
+#include <algorithm>
 
 namespace wwd {
 
@@ -76,9 +79,6 @@ static Result<void> parse_vqhd(VqaHeader& hdr, SpanReader& r) {
     if (!max_blocks) return std::unexpected(max_blocks.error());
     hdr.max_blocks = *max_blocks;
 
-    // Skip unknown1, unknown2
-    r.skip(4);
-
     auto offset_x = r.read_u16();
     if (!offset_x) return std::unexpected(offset_x.error());
     hdr.offset_x = *offset_x;
@@ -123,11 +123,19 @@ static Result<void> scan_audio_chunks(VqaAudioInfo& audio,
         if (t == read_u32(reinterpret_cast<const uint8_t*>("SND0"))) {
             audio.has_audio = true;
             audio.compressed = false;
+            audio.codec_id = 0;  // Raw PCM
+            break;
+        }
+        if (t == read_u32(reinterpret_cast<const uint8_t*>("SND1"))) {
+            audio.has_audio = true;
+            audio.compressed = true;
+            audio.codec_id = 1;  // Westwood ADPCM
             break;
         }
         if (t == read_u32(reinterpret_cast<const uint8_t*>("SND2"))) {
             audio.has_audio = true;
             audio.compressed = true;
+            audio.codec_id = 2;  // IMA ADPCM
             break;
         }
 
@@ -220,6 +228,458 @@ Result<std::unique_ptr<VqaReader>> VqaReader::open(
     if (!result) return std::unexpected(result.error());
 
     return reader;
+}
+
+// IMA ADPCM step table
+static const int16_t ima_step_table[89] = {
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31,
+    34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143,
+    157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658,
+    724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024,
+    3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
+    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+};
+
+static const int8_t ima_index_table[16] = {
+    -1, -1, -1, -1, 2, 4, 6, 8,
+    -1, -1, -1, -1, 2, 4, 6, 8
+};
+
+static int16_t ima_decode_sample(uint8_t nibble, int16_t& predictor, int& step_index) {
+    int step = ima_step_table[step_index];
+    int diff = step >> 3;
+
+    if (nibble & 1) diff += step >> 2;
+    if (nibble & 2) diff += step >> 1;
+    if (nibble & 4) diff += step;
+    if (nibble & 8) diff = -diff;
+
+    int new_pred = predictor + diff;
+    if (new_pred < -32768) new_pred = -32768;
+    if (new_pred > 32767) new_pred = 32767;
+    predictor = static_cast<int16_t>(new_pred);
+
+    int new_idx = step_index + ima_index_table[nibble];
+    if (new_idx < 0) new_idx = 0;
+    if (new_idx > 88) new_idx = 88;
+    step_index = new_idx;
+
+    return predictor;
+}
+
+// Westwood ADPCM index adjustment table (uses only lower 3 bits)
+static const int8_t ws_index_adjust[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
+
+// Decode Westwood ADPCM chunk (SND1) - used in VQA v1 files
+static void decode_westwood_adpcm(const uint8_t* src, size_t src_size,
+                                   std::vector<int16_t>& samples) {
+    if (src_size < 4) return;
+
+    size_t pos = 0;
+    int sample = 0;
+    int index = 0;
+
+    while (pos < src_size) {
+        uint8_t count = src[pos++];
+
+        if (count & 0x80) {
+            // Delta encoded block
+            count &= 0x7F;
+            if (count == 0) {
+                // Large count follows in next byte
+                if (pos >= src_size) break;
+                count = src[pos++];
+                if (count == 0) continue;
+            }
+
+            // Read delta samples
+            for (int i = 0; i < count && pos < src_size; ++i) {
+                uint8_t delta = src[pos++];
+
+                // 4-bit deltas (two per byte)
+                for (int n = 0; n < 2; ++n) {
+                    int nibble = (n == 0) ? (delta & 0x0F) : ((delta >> 4) & 0x0F);
+
+                    // Apply step using IMA step table
+                    int step = ima_step_table[index];
+                    int diff = 0;
+
+                    if (nibble & 4) diff += step;
+                    if (nibble & 2) diff += step >> 1;
+                    if (nibble & 1) diff += step >> 2;
+                    diff += step >> 3;
+
+                    if (nibble & 8) sample -= diff;
+                    else sample += diff;
+
+                    if (sample < -32768) sample = -32768;
+                    if (sample > 32767) sample = 32767;
+                    samples.push_back(static_cast<int16_t>(sample));
+
+                    index += ws_index_adjust[nibble & 0x07];
+                    if (index < 0) index = 0;
+                    if (index > 88) index = 88;
+                }
+            }
+        } else {
+            // Raw sample block
+            if (count == 0) continue;
+
+            for (int i = 0; i < count && pos < src_size; ++i) {
+                // 8-bit unsigned to 16-bit signed
+                uint8_t raw = src[pos++];
+                sample = (static_cast<int>(raw) - 128) << 8;
+                samples.push_back(static_cast<int16_t>(sample));
+            }
+            index = 0;
+        }
+    }
+}
+
+// Helper to make tag from string
+static uint32_t make_tag(const char* s) {
+    return read_u32(reinterpret_cast<const uint8_t*>(s));
+}
+
+Result<std::vector<VqaFrame>> VqaReader::decode_video() const {
+    const auto& hdr = impl_->info.header;
+    std::vector<VqaFrame> frames;
+    frames.reserve(hdr.frame_count);
+
+    // Current frame buffer (palette indices or RGB555)
+    std::vector<uint8_t> frame_buffer(hdr.width * hdr.height * 3, 0);
+
+    // Codebook (vector table) - each block is block_w * block_h bytes (or *2 for hicolor)
+    size_t block_size = static_cast<size_t>(hdr.block_w) * hdr.block_h;
+    bool hicolor = is_hicolor();
+    if (hicolor) block_size *= 2;
+
+    std::vector<uint8_t> codebook(static_cast<size_t>(hdr.max_blocks) * block_size, 0);
+
+    // Palette (for indexed color)
+    std::array<Color, 256> palette{};
+
+    // Parse chunks
+    SpanReader r(impl_->data);
+    r.seek(12);  // Skip FORM header
+
+    // Skip to first chunk after VQHD
+    while (r.remaining() >= 8) {
+        auto tag = r.read_u32();
+        auto size = r.read_u32be();
+        if (!tag || !size) break;
+
+        if (*tag == make_tag("VQHD")) {
+            // Skip header (already parsed)
+            r.skip(*size + (*size & 1));
+            break;
+        }
+        r.skip(*size + (*size & 1));
+    }
+
+    // Current frame index
+    int frame_idx = 0;
+    int blocks_x = hdr.width / hdr.block_w;
+    int blocks_y = hdr.height / hdr.block_h;
+
+    // Process chunks
+    while (r.remaining() >= 8 && frame_idx < hdr.frame_count) {
+        auto tag = r.read_u32();
+        auto size = r.read_u32be();
+        if (!tag || !size) break;
+
+        size_t chunk_start = r.pos();
+        uint32_t t = *tag;
+
+        if (t == make_tag("FINF")) {
+            // Frame info - skip
+        }
+        else if (t == make_tag("CBF0") || t == make_tag("CBFZ")) {
+            // Full codebook (uncompressed or LCW)
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data) {
+                if (t == make_tag("CBFZ")) {
+                    // LCW compressed codebook
+                    auto decomp = lcw_decompress(*chunk_data, codebook.size());
+                    if (decomp) {
+                        size_t copy_size = std::min(decomp->size(), codebook.size());
+                        std::memcpy(codebook.data(), decomp->data(), copy_size);
+                    }
+                } else {
+                    // Uncompressed codebook
+                    size_t copy_size = std::min(chunk_data->size(), codebook.size());
+                    std::memcpy(codebook.data(), chunk_data->data(), copy_size);
+                }
+            }
+        }
+        else if (t == make_tag("CBP0") || t == make_tag("CBPZ")) {
+            // Partial codebook update
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data && chunk_data->size() >= 4) {
+                // First 4 bytes: offset into codebook (little-endian)
+                uint32_t cb_offset = (*chunk_data)[0] |
+                                     ((*chunk_data)[1] << 8) |
+                                     ((*chunk_data)[2] << 16) |
+                                     ((*chunk_data)[3] << 24);
+
+                if (t == make_tag("CBPZ")) {
+                    // LCW compressed partial codebook
+                    std::span<const uint8_t> compressed(
+                        chunk_data->data() + 4, chunk_data->size() - 4);
+                    size_t decomp_size = codebook.size() - cb_offset;
+                    auto decomp = lcw_decompress(compressed, decomp_size);
+                    if (decomp && cb_offset < codebook.size()) {
+                        size_t copy_size = std::min(decomp->size(),
+                                                    codebook.size() - cb_offset);
+                        std::memcpy(codebook.data() + cb_offset,
+                                    decomp->data(), copy_size);
+                    }
+                } else {
+                    // Uncompressed partial codebook (CBP0)
+                    if (cb_offset < codebook.size()) {
+                        size_t copy_size = std::min(chunk_data->size() - 4,
+                                                    codebook.size() - cb_offset);
+                        std::memcpy(codebook.data() + cb_offset,
+                                    chunk_data->data() + 4, copy_size);
+                    }
+                }
+            }
+        }
+        else if (t == make_tag("CPL0")) {
+            // Palette (uncompressed)
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data && chunk_data->size() >= 768) {
+                for (int i = 0; i < 256; ++i) {
+                    uint8_t r_val = (*chunk_data)[i * 3];
+                    uint8_t g_val = (*chunk_data)[i * 3 + 1];
+                    uint8_t b_val = (*chunk_data)[i * 3 + 2];
+                    // 6-bit to 8-bit
+                    palette[i] = {
+                        static_cast<uint8_t>((r_val << 2) | (r_val >> 4)),
+                        static_cast<uint8_t>((g_val << 2) | (g_val >> 4)),
+                        static_cast<uint8_t>((b_val << 2) | (b_val >> 4))
+                    };
+                }
+            }
+        }
+        else if (t == make_tag("CPLZ")) {
+            // Palette (LCW compressed)
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data) {
+                // Decompress to 768 bytes (256 colors * 3 bytes each)
+                auto decomp = lcw_decompress(*chunk_data, 768);
+                if (decomp && decomp->size() >= 768) {
+                    for (int i = 0; i < 256; ++i) {
+                        uint8_t r_val = (*decomp)[i * 3];
+                        uint8_t g_val = (*decomp)[i * 3 + 1];
+                        uint8_t b_val = (*decomp)[i * 3 + 2];
+                        // 6-bit to 8-bit
+                        palette[i] = {
+                            static_cast<uint8_t>((r_val << 2) | (r_val >> 4)),
+                            static_cast<uint8_t>((g_val << 2) | (g_val >> 4)),
+                            static_cast<uint8_t>((b_val << 2) | (b_val >> 4))
+                        };
+                    }
+                }
+            }
+        }
+        else if (t == make_tag("VPT0") || t == make_tag("VPTZ") ||
+                 t == make_tag("VPTR") || t == make_tag("VPRZ")) {
+            // Vector pointer table - defines which codebook entry goes where
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data) {
+                // Decompress if VPTZ or VPRZ (LCW compressed)
+                std::vector<uint8_t> decompressed;
+                std::span<const uint8_t> vpt_data;
+
+                if (t == make_tag("VPTZ") || t == make_tag("VPRZ")) {
+                    // LCW compressed - calculate expected size
+                    size_t vpt_size = static_cast<size_t>(blocks_x) * blocks_y;
+                    if (hicolor) vpt_size *= 2;
+                    auto decomp = lcw_decompress(*chunk_data, vpt_size);
+                    if (decomp) {
+                        decompressed = std::move(*decomp);
+                        vpt_data = std::span<const uint8_t>(decompressed);
+                    } else {
+                        // Decompression failed, skip this chunk
+                        continue;
+                    }
+                } else {
+                    // Uncompressed (VPT0 or VPTR)
+                    vpt_data = std::span<const uint8_t>(*chunk_data);
+                }
+
+                // Each byte/word is an index into the codebook
+                // For 8-bit: each byte is a codebook index
+                size_t vpt_idx = 0;
+                for (int by = 0; by < blocks_y && vpt_idx < vpt_data.size(); ++by) {
+                    for (int bx = 0; bx < blocks_x && vpt_idx < vpt_data.size(); ++bx) {
+                        uint16_t cb_idx;
+                        if (hicolor && vpt_idx + 1 < vpt_data.size()) {
+                            cb_idx = vpt_data[vpt_idx] | (vpt_data[vpt_idx + 1] << 8);
+                            vpt_idx += 2;
+                        } else {
+                            cb_idx = vpt_data[vpt_idx++];
+                        }
+
+                        if (cb_idx >= hdr.max_blocks) continue;
+
+                        // Copy block from codebook to frame
+                        const uint8_t* cb_block = codebook.data() + cb_idx * block_size;
+
+                        for (int py = 0; py < hdr.block_h; ++py) {
+                            for (int px = 0; px < hdr.block_w; ++px) {
+                                int fx = bx * hdr.block_w + px;
+                                int fy = by * hdr.block_h + py;
+                                if (fx >= hdr.width || fy >= hdr.height) continue;
+
+                                size_t dst_idx = (fy * hdr.width + fx) * 3;
+
+                                if (hicolor) {
+                                    // RGB555
+                                    size_t src_idx = (py * hdr.block_w + px) * 2;
+                                    uint16_t pixel = cb_block[src_idx] | (cb_block[src_idx + 1] << 8);
+                                    frame_buffer[dst_idx] = ((pixel >> 10) & 0x1F) << 3;
+                                    frame_buffer[dst_idx + 1] = ((pixel >> 5) & 0x1F) << 3;
+                                    frame_buffer[dst_idx + 2] = (pixel & 0x1F) << 3;
+                                } else {
+                                    // Indexed color
+                                    size_t src_idx = py * hdr.block_w + px;
+                                    uint8_t pal_idx = cb_block[src_idx];
+                                    frame_buffer[dst_idx] = palette[pal_idx].r;
+                                    frame_buffer[dst_idx + 1] = palette[pal_idx].g;
+                                    frame_buffer[dst_idx + 2] = palette[pal_idx].b;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Frame complete - add to output
+                VqaFrame frame;
+                frame.rgb = frame_buffer;
+                frame.width = hdr.width;
+                frame.height = hdr.height;
+                frames.push_back(std::move(frame));
+                frame_idx++;
+            }
+        }
+
+        // Align to word boundary and skip to end of chunk
+        size_t consumed = r.pos() - chunk_start;
+        size_t aligned_size = *size + (*size & 1);
+        if (consumed < aligned_size) {
+            r.skip(aligned_size - consumed);
+        }
+    }
+
+    // If we didn't get all frames, add placeholder frames
+    while (frames.size() < static_cast<size_t>(hdr.frame_count)) {
+        VqaFrame frame;
+        frame.rgb = frame_buffer;
+        frame.width = hdr.width;
+        frame.height = hdr.height;
+        frames.push_back(std::move(frame));
+    }
+
+    return frames;
+}
+
+Result<std::vector<int16_t>> VqaReader::decode_audio() const {
+    if (!impl_->info.audio.has_audio) {
+        return std::vector<int16_t>{};
+    }
+
+    std::vector<int16_t> samples;
+    const auto& audio = impl_->info.audio;
+
+    // Parse chunks looking for SND0/SND1/SND2
+    SpanReader r(impl_->data);
+    r.seek(12);  // Skip FORM header
+
+    int16_t predictor_l = 0, predictor_r = 0;
+    int step_index_l = 0, step_index_r = 0;
+
+    while (r.remaining() >= 8) {
+        auto tag = r.read_u32();
+        auto size = r.read_u32be();
+        if (!tag || !size) break;
+
+        uint32_t t = *tag;
+
+        if (t == make_tag("SND0")) {
+            // Uncompressed PCM
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data) {
+                if (audio.bits == 16) {
+                    for (size_t i = 0; i + 1 < chunk_data->size(); i += 2) {
+                        int16_t sample = static_cast<int16_t>((*chunk_data)[i] | ((*chunk_data)[i + 1] << 8));
+                        samples.push_back(sample);
+                    }
+                } else {
+                    // 8-bit unsigned to 16-bit signed
+                    for (size_t i = 0; i < chunk_data->size(); ++i) {
+                        int16_t sample = (static_cast<int16_t>((*chunk_data)[i]) - 128) << 8;
+                        samples.push_back(sample);
+                    }
+                }
+            }
+        }
+        else if (t == make_tag("SND1")) {
+            // Westwood ADPCM compressed (VQA v1)
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data && chunk_data->size() > 0) {
+                decode_westwood_adpcm(chunk_data->data(), chunk_data->size(), samples);
+            }
+        }
+        else if (t == make_tag("SND2")) {
+            // IMA ADPCM compressed
+            auto chunk_data = r.read_bytes(*size);
+            if (chunk_data && chunk_data->size() >= 4) {
+                const uint8_t* src = chunk_data->data();
+                size_t src_size = chunk_data->size();
+
+                // First 4 bytes: initial predictor and step index for each channel
+                if (audio.channels == 2 && src_size >= 8) {
+                    predictor_l = static_cast<int16_t>(src[0] | (src[1] << 8));
+                    step_index_l = src[2];
+                    predictor_r = static_cast<int16_t>(src[4] | (src[5] << 8));
+                    step_index_r = src[6];
+                    src += 8;
+                    src_size -= 8;
+                } else if (src_size >= 4) {
+                    predictor_l = static_cast<int16_t>(src[0] | (src[1] << 8));
+                    step_index_l = src[2];
+                    src += 4;
+                    src_size -= 4;
+                }
+
+                // Decode IMA ADPCM
+                if (audio.channels == 2) {
+                    // Stereo: alternating samples
+                    for (size_t i = 0; i < src_size; ++i) {
+                        uint8_t byte = src[i];
+                        // Each byte = 2 samples
+                        samples.push_back(ima_decode_sample(byte & 0x0F, predictor_l, step_index_l));
+                        samples.push_back(ima_decode_sample(byte >> 4, predictor_r, step_index_r));
+                    }
+                } else {
+                    // Mono
+                    for (size_t i = 0; i < src_size; ++i) {
+                        uint8_t byte = src[i];
+                        samples.push_back(ima_decode_sample(byte & 0x0F, predictor_l, step_index_l));
+                        samples.push_back(ima_decode_sample(byte >> 4, predictor_l, step_index_l));
+                    }
+                }
+            }
+        }
+        else {
+            // Skip other chunks
+            r.skip(*size + (*size & 1));
+        }
+    }
+
+    return samples;
 }
 
 } // namespace wwd

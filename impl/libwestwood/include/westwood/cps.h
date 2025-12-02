@@ -16,10 +16,20 @@ namespace wwd {
 // Simple container for a 320x200 8-bit image with optional embedded palette.
 // Image data may be LCW compressed (Format80) or uncompressed.
 
+// CPS compression methods
+enum class CpsCompression : uint16_t {
+    None   = 0x0000,  // Uncompressed raw pixels
+    LZW12  = 0x0001,  // Westwood LZW, 12-bit codes
+    LZW14  = 0x0002,  // Westwood LZW, 14-bit codes
+    RLE    = 0x0003,  // Run-length encoding
+    LCW    = 0x0004   // Format80 compression (most common)
+};
+
 struct CpsInfo {
     uint16_t file_size;        // from header (actual size - 2)
-    uint16_t compression;      // 0=none, 4=LCW
+    uint16_t compression;      // CpsCompression value
     uint32_t uncomp_size;      // decompressed size (0xFA00 = 64000 for 320x200)
+    uint32_t compressed_size;  // size of compressed image data
     uint16_t palette_size;     // 768 if embedded palette, 0 otherwise
     uint16_t width;            // always 320
     uint16_t height;           // always 200

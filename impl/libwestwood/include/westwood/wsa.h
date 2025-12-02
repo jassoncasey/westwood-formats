@@ -1,7 +1,9 @@
 #pragma once
 
 #include <westwood/error.h>
+#include <westwood/pal.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -35,6 +37,17 @@ public:
 
     const WsaInfo& info() const;
     const std::vector<WsaFrameInfo>& frames() const;
+
+    // Get embedded palette (returns nullptr if no palette)
+    const std::array<Color, 256>* palette() const;
+
+    // Decode a single frame to palette indices
+    // delta_buffer is used for frame-to-frame delta decoding
+    Result<std::vector<uint8_t>> decode_frame(size_t frame_index,
+                                               std::vector<uint8_t>& delta_buffer) const;
+
+    // Decode all frames to palette indices
+    Result<std::vector<std::vector<uint8_t>>> decode_all_frames() const;
 
 private:
     WsaReader();
