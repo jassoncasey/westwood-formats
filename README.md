@@ -54,7 +54,8 @@ cnc_redalert/
 | File | Purpose |
 |------|---------|
 | [mix-tool.md](mix-tool.md) | CLI usage, library API, build system, test data catalog |
-| [xcc.md](xcc.md) | MIX format specification: headers, encryption, hashing algorithms |
+| [xcc.md](xcc.md) | Archive formats: MIX (TD, RA, TS), BIG containers |
+| [westwood-formats.md](westwood-formats.md) | Media formats: VQA, AUD, SHP, PAL, WSA, TMP, FNT |
 | [test/test.md](test/test.md) | Test strategy and coverage |
 
 ## Key Concepts
