@@ -25,8 +25,9 @@ Document derived from source code analysis and community documentation.
 6. [WSA - Westwood Animation](#6-wsa---westwood-animation)
 7. [TMP - Tile Template](#7-tmp---tile-template)
 8. [FNT - Font Format](#8-fnt---font-format)
-9. [Standard Formats](#9-standard-formats)
-10. [Compression Algorithms](#10-compression-algorithms)
+9. [CPS - Compressed Picture](#9-cps---compressed-picture)
+10. [Standard Formats](#10-standard-formats)
+11. [Compression Algorithms](#11-compression-algorithms)
 
 ---
 
@@ -48,7 +49,7 @@ series. These formats share common design patterns:
 |----------|---------|-------------|
 | Video | VQA, VQP | Full-motion video with audio |
 | Audio | AUD | Compressed audio streams |
-| Graphics | SHP, PAL, PCX | Sprites, palettes, images |
+| Graphics | SHP, PAL, CPS, PCX | Sprites, palettes, images |
 | Animation | WSA | Sprite-based animations |
 | Terrain | TMP | Isometric tile graphics |
 | UI | FNT | Bitmap fonts |
@@ -64,6 +65,7 @@ series. These formats share common design patterns:
 | WSA | ✓ | ✓ | - | - | TD/RA only |
 | TMP | ✓ | ✓ | ✓ | ✓ | TD/RA ortho, TS/RA2 iso |
 | FNT | ✓ | ✓ | ✓ | ✓ | Minor variations |
+| CPS | ✓ | ✓ | - | - | 320×200 static images |
 
 ---
 
@@ -963,7 +965,87 @@ Following header, three arrays:
 
 ---
 
-## 9. Standard Formats
+## 9. CPS - Compressed Picture
+
+Static image format for full-screen backgrounds and title screens.
+
+### 9.1 Overview
+
+CPS files contain single 320×200 images with optional embedded palette. Used for
+menu backgrounds, loading screens, and other static graphics.
+
+**File signature:** None; identified by structure validation.
+
+**Dimensions:** Always 320×200 pixels (64000 bytes uncompressed).
+
+**Identification heuristic:** First 2 bytes + 2 = file size.
+
+### 9.2 Header (10 bytes)
+
+```
+Offset  Size  Type      Field           Description
+------  ----  ----      -----           -----------
+0       2     uint16    FileSize        File size minus 2
+2       2     uint16    Compression     Compression method (see below)
+4       4     uint32    UncompSize      Uncompressed size (0xFA00 = 64000)
+8       2     uint16    PaletteSize     Palette bytes (768 or 0)
+```
+
+### 9.3 Compression Methods
+
+| Value | Method | Description |
+|-------|--------|-------------|
+| 0x0000 | None | Uncompressed raw pixels |
+| 0x0001 | LZW-12 | Westwood LZW, 12-bit codes |
+| 0x0002 | LZW-14 | Westwood LZW, 14-bit codes |
+| 0x0003 | RLE | Run-length encoding |
+| 0x0004 | LCW | Format80 compression (most common) |
+
+### 9.4 File Layout
+
+```
++--------+-------------------+-----------------------------------+
+| Offset | Size              | Description                       |
++--------+-------------------+-----------------------------------+
+| 0      | 10                | Header                            |
+| 10     | PaletteSize       | Palette (if PaletteSize > 0)      |
+| 10+P   | FileSize-8-P      | Compressed/raw image data         |
++--------+-------------------+-----------------------------------+
+
+Where P = PaletteSize
+```
+
+### 9.5 Palette
+
+When PaletteSize = 768:
+- 256 RGB triplets (3 bytes each)
+- 6-bit VGA values (0-63 per channel)
+- Same format as standalone PAL files
+
+When PaletteSize = 0:
+- No embedded palette
+- Use external palette (typically from same MIX archive)
+
+### 9.6 Image Data
+
+After decompression: 64000 bytes of 8-bit palette-indexed pixels.
+Linear layout: row 0 first, left-to-right, then row 1, etc.
+
+### 9.7 Decoding Algorithm
+
+```
+1. Read header (10 bytes)
+2. Validate: FileSize + 2 == actual file size
+3. If PaletteSize > 0: read palette
+4. Decompress image data based on Compression field:
+   - 0x0000: Copy raw bytes
+   - 0x0004: LCW decompress (most common)
+5. Result: 64000 bytes representing 320×200 indexed pixels
+```
+
+---
+
+## 10. Standard Formats
 
 These standard formats are used with Westwood-specific extensions or naming.
 
@@ -976,14 +1058,14 @@ These standard formats are used with Westwood-specific extensions or naming.
 | .ICO | ICO | Windows Icon | Application icons |
 | .TTF | TTF | TrueType | Modern font support (later games) |
 
-### 9.1 DAH/DAL - Menu Graphics
+### 10.1 DAH/DAL - Menu Graphics
 
 Autorun/installer menu backgrounds. Standard 8-bit BMP format.
 - DAH = High resolution/quality
 - DAL = Low resolution/quality
 - Same image content, different quality levels
 
-### 9.2 DAW - Menu Audio
+### 10.2 DAW - Menu Audio
 
 Menu music and sound effects. Standard RIFF WAVE format.
 - Typically 22050 Hz sample rate
@@ -991,9 +1073,9 @@ Menu music and sound effects. Standard RIFF WAVE format.
 
 ---
 
-## 10. Compression Algorithms
+## 11. Compression Algorithms
 
-### 10.1 LCW / Format80
+### 11.1 LCW / Format80
 
 Lempel-Ziv style compression used in SHP, WSA, VQA, and other formats.
 Provides both literal copies and back-references to repeated data.
@@ -1068,7 +1150,7 @@ while not end:
             copy count bytes from dest_start[offset]  // absolute
 ```
 
-### 10.2 Format40 - XOR Delta Encoding
+### 11.2 Format40 - XOR Delta Encoding
 
 Delta compression for animation frames. Applies XOR operations against
 the previous frame buffer, compressing unchanged regions as skips.
@@ -1139,7 +1221,7 @@ while true:
 
 Note: "word > 0" uses signed comparison (bit 15 is sign bit).
 
-### 10.3 Westwood ADPCM (WS-SND1)
+### 11.3 Westwood ADPCM (WS-SND1)
 
 Westwood's proprietary audio compression. Produces 8-bit unsigned PCM output.
 
@@ -1218,7 +1300,7 @@ while output_needed:
             output(sample)  // repeat previous
 ```
 
-### 10.4 IMA ADPCM
+### 11.4 IMA ADPCM
 
 Standard IMA ADPCM used in VQA SND2 chunks and AUD codec 0x63.
 
@@ -1263,7 +1345,7 @@ for each nibble:
 { -1, -1, -1, -1, 2, 4, 6, 8 }
 ```
 
-### 10.5 RLE-Zero (TS/RA2 SHP)
+### 11.5 RLE-Zero (TS/RA2 SHP)
 
 Simple run-length encoding for transparent pixels.
 
