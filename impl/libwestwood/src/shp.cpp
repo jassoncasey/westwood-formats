@@ -201,28 +201,21 @@ Result<std::vector<uint8_t>> ShpReader::decode_frame(
         }
     }
     else if (format & 0x40) {
-        // XOR with previous frame (delta_buffer contains previous frame)
-        // Frame data is raw delta bytes
-        size_t copy_len = std::min(frame_data.size(), frame_size);
-        for (size_t i = 0; i < copy_len; ++i) {
-            output[i] = delta_buffer[i] ^ frame_data[i];
-        }
-        for (size_t i = copy_len; i < frame_size; ++i) {
-            output[i] = delta_buffer[i];
+        // XOR delta against reference frame (Format40 encoded)
+        // delta_buffer should already contain the reference frame
+        output = delta_buffer;
+        auto fmt40_result = format40_decompress(frame_data, std::span(output));
+        if (!fmt40_result) {
+            return std::unexpected(fmt40_result.error());
         }
     }
     else if (format & 0x20) {
-        // XORLCW: XOR with reference frame, LCW compressed delta
-        auto decomp = lcw_decompress(frame_data, frame_size);
-        if (!decomp) {
-            return std::unexpected(decomp.error());
-        }
-        // XOR decompressed data with delta buffer
-        for (size_t i = 0; i < frame_size && i < decomp->size(); ++i) {
-            output[i] = delta_buffer[i] ^ (*decomp)[i];
-        }
-        for (size_t i = decomp->size(); i < frame_size; ++i) {
-            output[i] = delta_buffer[i];
+        // XOR delta against previous frame (Format40 encoded)
+        // delta_buffer contains previous frame
+        output = delta_buffer;
+        auto fmt40_result = format40_decompress(frame_data, std::span(output));
+        if (!fmt40_result) {
+            return std::unexpected(fmt40_result.error());
         }
     }
     else {

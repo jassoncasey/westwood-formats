@@ -27,4 +27,15 @@ WWD_API Result<std::vector<uint8_t>> lcw_decompress(
     size_t output_size,
     bool relative = false);
 
+// Format40 / XOR Delta decompression
+//
+// Applies XOR delta operations to an existing buffer.
+// Used by SHP and WSA for frame-to-frame differences.
+//
+// Buffer is modified in-place (XOR operations applied).
+// Returns number of bytes in resulting frame.
+WWD_API Result<size_t> format40_decompress(
+    std::span<const uint8_t> input,
+    std::span<uint8_t> buffer);
+
 } // namespace wwd

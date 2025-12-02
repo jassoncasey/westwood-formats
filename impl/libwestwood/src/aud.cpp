@@ -23,8 +23,12 @@ static const int8_t ima_index_table[16] = {
     -1, -1, -1, -1, 2, 4, 6, 8
 };
 
-// Westwood ADPCM step/index adjustment table
-static const int8_t ws_index_adjust[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
+// Westwood ADPCM (WS-SND1) lookup tables
+static const int8_t ws_step_2bit[4] = { -2, -1, 0, 1 };
+static const int8_t ws_step_4bit[16] = {
+    -9, -8, -6, -5, -4, -3, -2, -1,
+     0,  1,  2,  3,  4,  5,  6,  8
+};
 
 struct AudReaderImpl {
     AudInfo info{};
@@ -82,70 +86,77 @@ static void decode_ima_adpcm(const uint8_t* src, size_t src_size,
     }
 }
 
-// Decode Westwood ADPCM chunk
+// Decode Westwood ADPCM (WS-SND1) chunk
+// Produces 8-bit unsigned PCM, which we convert to 16-bit signed for output
 static void decode_westwood_adpcm(const uint8_t* src, size_t src_size,
                                    int16_t* dst, size_t& dst_samples) {
     dst_samples = 0;
-    if (src_size < 4) return;
-
-    // Chunk header: 2 bytes compressed size, 2 bytes output size, then sample ID
-    // The data format alternates between raw samples and delta-encoded samples
+    if (src_size == 0) return;
 
     size_t pos = 0;
-    int sample = 0;
-    int index = 0;
+    int sample = 0x80;  // Initial center value for 8-bit unsigned
+
+    // Helper to output sample (convert 8-bit unsigned to 16-bit signed)
+    auto output = [&](int s) {
+        s = std::clamp(s, 0, 255);
+        sample = s;
+        // Convert 8-bit unsigned (0-255) to 16-bit signed (-32768 to 32767)
+        dst[dst_samples++] = static_cast<int16_t>((s - 128) << 8);
+    };
 
     while (pos < src_size) {
-        uint8_t count = src[pos++];
+        uint8_t cmd = src[pos++];
+        int mode = (cmd >> 6) & 0x03;
+        int count = cmd & 0x3F;
 
-        if (count & 0x80) {
-            // Delta encoded block
-            count &= 0x7F;
-            if (count == 0) {
-                // Large count follows in next byte
-                if (pos >= src_size) break;
-                count = src[pos++];
-                if (count == 0) continue;
-            }
-
-            // Read delta samples
-            for (int i = 0; i < count && pos < src_size; ++i) {
-                uint8_t delta = src[pos++];
-
-                // 4-bit deltas (two per byte)
-                for (int n = 0; n < 2; ++n) {
-                    int nibble = (n == 0) ? (delta & 0x0F) : ((delta >> 4) & 0x0F);
-
-                    // Apply step
-                    int step = ima_step_table[index];
-                    int diff = 0;
-
-                    if (nibble & 4) diff += step;
-                    if (nibble & 2) diff += step >> 1;
-                    if (nibble & 1) diff += step >> 2;
-                    diff += step >> 3;
-
-                    if (nibble & 8) sample -= diff;
-                    else sample += diff;
-
-                    sample = std::clamp(sample, -32768, 32767);
-                    dst[dst_samples++] = static_cast<int16_t>(sample);
-
-                    index += ws_index_adjust[nibble & 0x07];
-                    index = std::clamp(index, 0, 88);
+        switch (mode) {
+            case 0:  // Mode 0: 2-bit ADPCM
+                for (int i = 0; i <= count && pos < src_size; ++i) {
+                    uint8_t packed = src[pos++];
+                    // 4 samples per byte, 2 bits each, LSB first
+                    for (int j = 0; j < 4; ++j) {
+                        int delta_idx = (packed >> (j * 2)) & 0x03;
+                        int delta = ws_step_2bit[delta_idx];
+                        output(sample + delta);
+                    }
                 }
-            }
-        } else {
-            // Raw sample block
-            if (count == 0) continue;
+                break;
 
-            for (int i = 0; i < count && pos < src_size; ++i) {
-                // 8-bit unsigned to 16-bit signed
-                uint8_t raw = src[pos++];
-                sample = (static_cast<int>(raw) - 128) << 8;
-                dst[dst_samples++] = static_cast<int16_t>(sample);
-            }
-            index = 0;
+            case 1:  // Mode 1: 4-bit ADPCM
+                for (int i = 0; i <= count && pos < src_size; ++i) {
+                    uint8_t packed = src[pos++];
+                    // 2 samples per byte, 4 bits each
+                    // Low nibble first
+                    int delta = ws_step_4bit[packed & 0x0F];
+                    output(sample + delta);
+                    // High nibble second
+                    delta = ws_step_4bit[packed >> 4];
+                    output(sample + delta);
+                }
+                break;
+
+            case 2:  // Mode 2: Raw bytes or 5-bit signed delta
+                if (count & 0x20) {
+                    // Bit 5 set: 5-bit signed delta (bits 4-0)
+                    int delta = count & 0x1F;
+                    // Sign-extend 5-bit to full int
+                    if (delta & 0x10) {
+                        delta |= ~0x1F;  // Sign extend
+                    }
+                    output(sample + delta);
+                } else {
+                    // Bit 5 clear: copy (count+1) literal bytes
+                    for (int i = 0; i <= count && pos < src_size; ++i) {
+                        output(src[pos++]);
+                    }
+                }
+                break;
+
+            case 3:  // Mode 3: Silence (RLE) - repeat previous sample
+                for (int i = 0; i <= count; ++i) {
+                    output(sample);
+                }
+                break;
         }
     }
 }

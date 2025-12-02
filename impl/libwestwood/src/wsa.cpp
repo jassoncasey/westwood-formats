@@ -159,50 +159,6 @@ Result<std::unique_ptr<WsaReader>> WsaReader::open(
     return reader;
 }
 
-// Format40 decompression (XOR delta)
-// Used by WSA to encode frame differences
-static Result<void> format40_decompress(std::span<const uint8_t> src,
-                                         std::vector<uint8_t>& dst) {
-    size_t src_pos = 0;
-    size_t dst_pos = 0;
-    size_t dst_size = dst.size();
-
-    while (src_pos < src.size() && dst_pos < dst_size) {
-        uint8_t cmd = src[src_pos++];
-
-        if (cmd == 0) {
-            // Two-byte command
-            if (src_pos >= src.size()) break;
-            uint8_t count = src[src_pos++];
-
-            if (count == 0) {
-                // End of frame
-                break;
-            } else if (count & 0x80) {
-                // Skip (count & 0x7F) bytes
-                dst_pos += (count & 0x7F);
-            } else {
-                // Copy next count bytes, XOR with dest
-                for (uint8_t i = 0; i < count && src_pos < src.size() && dst_pos < dst_size; ++i) {
-                    dst[dst_pos++] ^= src[src_pos++];
-                }
-            }
-        } else if (cmd & 0x80) {
-            // XOR next (cmd & 0x7F) bytes with same value
-            if (src_pos >= src.size()) break;
-            uint8_t value = src[src_pos++];
-            uint8_t count = cmd & 0x7F;
-            for (uint8_t i = 0; i < count && dst_pos < dst_size; ++i) {
-                dst[dst_pos++] ^= value;
-            }
-        } else {
-            // Skip cmd bytes
-            dst_pos += cmd;
-        }
-    }
-
-    return {};
-}
 
 Result<std::vector<uint8_t>> WsaReader::decode_frame(
     size_t frame_index,
@@ -247,7 +203,7 @@ Result<std::vector<uint8_t>> WsaReader::decode_frame(
 
     // Then apply Format40 XOR delta
     auto fmt40_result = format40_decompress(
-        std::span(*lcw_result), delta_buffer);
+        std::span(*lcw_result), std::span(delta_buffer));
     if (!fmt40_result) {
         return std::unexpected(fmt40_result.error());
     }

@@ -205,4 +205,104 @@ Result<std::vector<uint8_t>> lcw_decompress(
     return output;
 }
 
+// Format40 / XOR Delta decompression
+//
+// Command encoding (from EA/Westwood XORDELTA.ASM):
+//
+// 0x00: SHORTRUN - XOR fill
+//   Next two bytes: count, value
+//   XOR next 'count' bytes with 'value'
+//
+// 0x01-0x7F: SHORTDUMP - XOR copy
+//   XOR next 'cmd' bytes from source
+//
+// 0x80: Long command - read uint16
+//   If uint16 == 0: END marker
+//   Else if bit15 == 0: LONGSKIP - skip (word & 0x7FFF) bytes
+//   Else if bit14 == 0: LONGDUMP - XOR next (word & 0x3FFF) bytes from source
+//   Else: LONGRUN - XOR (word & 0x3FFF) bytes with next byte value
+//
+// 0x81-0xFF: SHORTSKIP - skip (cmd & 0x7F) bytes
+
+Result<size_t> format40_decompress(
+    std::span<const uint8_t> input,
+    std::span<uint8_t> buffer)
+{
+    if (input.empty()) {
+        return buffer.size();
+    }
+
+    const uint8_t* src = input.data();
+    const uint8_t* src_end = src + input.size();
+    uint8_t* dst = buffer.data();
+    uint8_t* dst_end = dst + buffer.size();
+
+    while (src < src_end && dst < dst_end) {
+        uint8_t cmd = *src++;
+
+        if (cmd == 0x00) {
+            // SHORTRUN: XOR fill
+            if (src + 2 > src_end) break;
+            uint8_t count = *src++;
+            uint8_t value = *src++;
+            for (uint8_t i = 0; i < count && dst < dst_end; ++i) {
+                *dst++ ^= value;
+            }
+        }
+        else if (cmd < 0x80) {
+            // SHORTDUMP: XOR copy next 'cmd' bytes
+            for (uint8_t i = 0; i < cmd && src < src_end && dst < dst_end; ++i) {
+                *dst++ ^= *src++;
+            }
+        }
+        else if (cmd == 0x80) {
+            // Long command - read uint16
+            if (src + 2 > src_end) break;
+            uint16_t word = read_u16(src);
+            src += 2;
+
+            if (word == 0) {
+                // END marker
+                break;
+            }
+            else if ((word & 0x8000) == 0) {
+                // LONGSKIP: skip (word & 0x7FFF) bytes
+                size_t skip = word & 0x7FFF;
+                if (dst + skip > dst_end) {
+                    dst = dst_end;  // Clamp to end
+                } else {
+                    dst += skip;
+                }
+            }
+            else if ((word & 0x4000) == 0) {
+                // LONGDUMP: XOR next (word & 0x3FFF) bytes from source
+                size_t count = word & 0x3FFF;
+                for (size_t i = 0; i < count && src < src_end && dst < dst_end; ++i) {
+                    *dst++ ^= *src++;
+                }
+            }
+            else {
+                // LONGRUN: XOR (word & 0x3FFF) bytes with value
+                if (src >= src_end) break;
+                size_t count = word & 0x3FFF;
+                uint8_t value = *src++;
+                for (size_t i = 0; i < count && dst < dst_end; ++i) {
+                    *dst++ ^= value;
+                }
+            }
+        }
+        else {
+            // SHORTSKIP: skip (cmd & 0x7F) bytes
+            size_t skip = cmd & 0x7F;
+            if (dst + skip > dst_end) {
+                dst = dst_end;  // Clamp to end
+            } else {
+                dst += skip;
+            }
+        }
+    }
+
+    return buffer.size();
+}
+
 } // namespace wwd
