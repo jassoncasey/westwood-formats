@@ -16,6 +16,33 @@ void copy_overlap(uint8_t* dst, const uint8_t* src, size_t count) {
 
 } // namespace
 
+// LCW / Format80 decompression
+//
+// Command byte encoding (based on C&C source and replicant project):
+//
+// 0x00-0x7F: Short relative copy
+//   Bits: 0cccpppp pppppppp  (2 bytes total)
+//   count = ((cmd & 0x70) >> 4) + 3  (3-10 bytes)
+//   pos = ((cmd & 0x0F) << 8) | next_byte  (relative back-reference)
+//
+// 0x80-0xBF: Literal bytes
+//   Bits: 10cccccc [data...]
+//   count = cmd & 0x3F  (0-63 bytes, 0 means end marker)
+//   Copy count bytes from source
+//
+// 0xC0-0xFD: Medium copy (absolute or relative mode)
+//   Bits: 11cccccc pppppppp pppppppp  (3 bytes)
+//   count = (cmd & 0x3F) + 3  (3-66 bytes)
+//   pos = uint16 from next 2 bytes
+//
+// 0xFE: Long fill
+//   Bytes: 0xFE cccc CCCC vvvv  (4 bytes)
+//   count = uint16, value = byte
+//
+// 0xFF: Long copy (absolute or relative mode)
+//   Bytes: 0xFF cccc CCCC pppp PPPP  (5 bytes)
+//   count = uint16, pos = uint16
+
 Result<size_t> lcw_decompress(
     std::span<const uint8_t> input,
     std::span<uint8_t> output,
@@ -32,101 +59,86 @@ Result<size_t> lcw_decompress(
     uint8_t* dst_start = dst;
     uint8_t* dst_end = dst + output.size();
 
+    // Check for relative mode indicator: first byte == 0x00
+    bool use_relative = relative;
+    if (src < src_end && *src == 0x00) {
+        use_relative = true;
+        src++;  // Skip mode indicator byte
+    }
+
     while (src < src_end) {
         uint8_t cmd = *src++;
 
-        if (cmd == 0x80) {
-            // End marker
-            break;
-        }
-
         if (cmd < 0x80) {
-            if (cmd < 0x40) {
-                // 0x00-0x3F: Literal copy
-                size_t count = (cmd & 0x3F) + 1;
-                if (src + count > src_end) {
-                    return std::unexpected(
-                        make_error(ErrorCode::UnexpectedEof, "LCW literal"));
-                }
-                if (dst + count > dst_end) {
-                    return std::unexpected(
-                        make_error(ErrorCode::OutputOverflow, "LCW literal"));
-                }
-                std::memcpy(dst, src, count);
-                src += count;
-                dst += count;
-            } else {
-                // 0x40-0x7F: Short back-reference (always relative)
-                size_t count = ((cmd & 0x70) >> 4) + 3;
-                if (src >= src_end) {
-                    return std::unexpected(
-                        make_error(ErrorCode::UnexpectedEof, "LCW short ref"));
-                }
-                size_t offset = ((cmd & 0x0F) << 8) | *src++;
-                if (dst - offset < dst_start) {
-                    return std::unexpected(
-                        make_error(ErrorCode::CorruptData, "LCW bad offset"));
-                }
-                if (dst + count > dst_end) {
-                    return std::unexpected(
-                        make_error(ErrorCode::OutputOverflow, "LCW short ref"));
-                }
-                copy_overlap(dst, dst - offset, count);
-                dst += count;
-            }
-        } else if (cmd < 0xC0) {
-            // 0x81-0xBF: Long back-reference
+            // 0x00-0x7F: Short relative copy (always relative)
+            size_t count = ((cmd & 0x70) >> 4) + 3;
             if (src >= src_end) {
                 return std::unexpected(
-                    make_error(ErrorCode::UnexpectedEof, "LCW long ref count"));
+                    make_error(ErrorCode::UnexpectedEof, "LCW short copy"));
             }
-            size_t count = ((cmd & 0x3F) << 8) | *src++;
+            size_t offset = ((cmd & 0x0F) << 8) | *src++;
+            if (offset == 0 || dst - offset < dst_start) {
+                return std::unexpected(
+                    make_error(ErrorCode::CorruptData, "LCW bad short offset"));
+            }
+            if (dst + count > dst_end) {
+                return std::unexpected(
+                    make_error(ErrorCode::OutputOverflow, "LCW short copy"));
+            }
+            copy_overlap(dst, dst - offset, count);
+            dst += count;
+        }
+        else if (cmd < 0xC0) {
+            // 0x80-0xBF: Literal bytes
+            size_t count = cmd & 0x3F;
             if (count == 0) {
-                // Extended: 0x80 0x00 is end marker (handled above)
+                // End marker (0x80)
                 break;
             }
+            if (src + count > src_end) {
+                return std::unexpected(
+                    make_error(ErrorCode::UnexpectedEof, "LCW literal"));
+            }
+            if (dst + count > dst_end) {
+                return std::unexpected(
+                    make_error(ErrorCode::OutputOverflow, "LCW literal"));
+            }
+            std::memcpy(dst, src, count);
+            src += count;
+            dst += count;
+        }
+        else if (cmd < 0xFE) {
+            // 0xC0-0xFD: Medium copy
+            size_t count = (cmd & 0x3F) + 3;
             if (src + 2 > src_end) {
                 return std::unexpected(
-                    make_error(ErrorCode::UnexpectedEof, "LCW long ref offset"));
+                    make_error(ErrorCode::UnexpectedEof, "LCW medium copy"));
             }
-            uint16_t raw_offset = read_u16(src);
+            uint16_t pos = read_u16(src);
             src += 2;
 
             const uint8_t* copy_src;
-            if (relative) {
-                if (dst - raw_offset < dst_start) {
+            if (use_relative) {
+                if (pos == 0 || dst - pos < dst_start) {
                     return std::unexpected(
-                        make_error(ErrorCode::CorruptData, "LCW bad rel offset"));
+                        make_error(ErrorCode::CorruptData, "LCW bad rel pos"));
                 }
-                copy_src = dst - raw_offset;
+                copy_src = dst - pos;
             } else {
-                if (dst_start + raw_offset >= dst) {
+                if (dst_start + pos > dst) {
                     return std::unexpected(
-                        make_error(ErrorCode::CorruptData, "LCW bad abs offset"));
+                        make_error(ErrorCode::CorruptData, "LCW bad abs pos"));
                 }
-                copy_src = dst_start + raw_offset;
+                copy_src = dst_start + pos;
             }
             if (dst + count > dst_end) {
                 return std::unexpected(
-                    make_error(ErrorCode::OutputOverflow, "LCW long ref"));
+                    make_error(ErrorCode::OutputOverflow, "LCW medium copy"));
             }
             copy_overlap(dst, copy_src, count);
             dst += count;
-        } else if (cmd < 0xFE) {
-            // 0xC0-0xFD: Short fill
-            size_t count = (cmd & 0x3F) + 3;
-            if (src >= src_end) {
-                return std::unexpected(
-                    make_error(ErrorCode::UnexpectedEof, "LCW short fill"));
-            }
-            uint8_t value = *src++;
-            if (dst + count > dst_end) {
-                return std::unexpected(
-                    make_error(ErrorCode::OutputOverflow, "LCW short fill"));
-            }
-            std::memset(dst, value, count);
-            dst += count;
-        } else if (cmd == 0xFE) {
+        }
+        else if (cmd == 0xFE) {
             // 0xFE: Long fill
             if (src + 3 > src_end) {
                 return std::unexpected(
@@ -141,34 +153,35 @@ Result<size_t> lcw_decompress(
             }
             std::memset(dst, value, count);
             dst += count;
-        } else {
-            // 0xFF: Long copy with separate count
+        }
+        else {
+            // 0xFF: Long copy
             if (src + 4 > src_end) {
                 return std::unexpected(
-                    make_error(ErrorCode::UnexpectedEof, "LCW 0xFF"));
+                    make_error(ErrorCode::UnexpectedEof, "LCW long copy"));
             }
             size_t count = read_u16(src);
             src += 2;
-            uint16_t raw_offset = read_u16(src);
+            uint16_t pos = read_u16(src);
             src += 2;
 
             const uint8_t* copy_src;
-            if (relative) {
-                if (dst - raw_offset < dst_start) {
+            if (use_relative) {
+                if (pos == 0 || dst - pos < dst_start) {
                     return std::unexpected(
                         make_error(ErrorCode::CorruptData, "LCW 0xFF bad rel"));
                 }
-                copy_src = dst - raw_offset;
+                copy_src = dst - pos;
             } else {
-                if (dst_start + raw_offset >= dst) {
+                if (dst_start + pos > dst) {
                     return std::unexpected(
                         make_error(ErrorCode::CorruptData, "LCW 0xFF bad abs"));
                 }
-                copy_src = dst_start + raw_offset;
+                copy_src = dst_start + pos;
             }
             if (dst + count > dst_end) {
                 return std::unexpected(
-                    make_error(ErrorCode::OutputOverflow, "LCW 0xFF"));
+                    make_error(ErrorCode::OutputOverflow, "LCW long copy"));
             }
             copy_overlap(dst, copy_src, count);
             dst += count;

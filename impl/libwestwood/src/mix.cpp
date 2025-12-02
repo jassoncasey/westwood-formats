@@ -1,5 +1,6 @@
 #include <westwood/mix.h>
 #include <westwood/io.h>
+#include <westwood/blowfish.h>
 
 #include <algorithm>
 #include <cstring>
@@ -76,15 +77,41 @@ Result<std::vector<uint8_t>> MixReader::read(const MixEntry& entry) const {
 }
 
 // Hash implementations
+//
+// TD/RA hash: Rotate-add algorithm processing 4 characters at a time
+// From xcc.md section 8.1:
+//   - Uppercase and normalize slashes
+//   - Process 4 chars at a time, building a 32-bit word
+//   - rotate_left(hash, 1) + word
+//
 uint32_t mix_hash_td(std::string_view filename) {
-    uint32_t hash = 0;
+    // Preprocess: uppercase and normalize slashes
+    std::string name;
+    name.reserve(filename.size());
     for (char c : filename) {
-        uint8_t ch = static_cast<uint8_t>(c);
-        if (ch >= 'a' && ch <= 'z') ch -= 0x20;  // uppercase
-        hash = (hash << 1) | (hash >> 31);  // rotate left
-        hash += ch;
+        if (c >= 'a' && c <= 'z') c -= 0x20;
+        if (c == '/') c = '\\';
+        name.push_back(c);
     }
-    return hash;
+
+    uint32_t id = 0;
+    size_t i = 0;
+    size_t len = name.size();
+
+    while (i < len) {
+        uint32_t a = 0;
+        for (int j = 0; j < 4; ++j) {
+            a >>= 8;
+            if (i < len) {
+                a |= static_cast<uint32_t>(static_cast<uint8_t>(name[i])) << 24;
+                ++i;
+            }
+        }
+        // rotate_left(id, 1) + a
+        id = ((id << 1) | (id >> 31)) + a;
+    }
+
+    return id;
 }
 
 uint32_t mix_hash_ts(std::string_view filename) {
@@ -276,22 +303,93 @@ static Result<void> parse_td(MixReaderImpl& impl,
     return {};
 }
 
-// RA format
-static Result<void> parse_ra(MixReaderImpl& impl,
-                              const uint8_t* data,
-                              size_t size,
-                              uint32_t flags) {
-    impl.info.format       = MixFormat::RA;
-    impl.info.encrypted    = (flags & FLAG_ENCRYPTED) != 0;
-    impl.info.has_checksum = (flags & FLAG_CHECKSUM) != 0;
-    impl.info.file_size    = size;
+// RA format - encrypted
+static Result<void> parse_ra_encrypted(MixReaderImpl& impl,
+                                        const uint8_t* data,
+                                        size_t size) {
+    // Layout per xcc.md:
+    // Offset 0:  4 bytes  - flags
+    // Offset 4:  80 bytes - key_source (RSA-encrypted Blowfish key)
+    // Offset 84: 8 bytes  - encrypted header block
+    // Offset 92: P bytes  - encrypted index (P = ((c_files*12)+5) & ~7)
+    // Body follows, NOT encrypted
 
-    if (impl.info.encrypted) {
+    constexpr size_t KEY_SOURCE_OFFSET = 4;
+    constexpr size_t ENCRYPTED_HDR_OFFSET = 84;
+    constexpr size_t ENCRYPTED_IDX_OFFSET = 92;
+
+    if (size < ENCRYPTED_IDX_OFFSET) {
         return std::unexpected(
-            make_error(ErrorCode::UnsupportedFormat,
-                       "Encrypted RA format not yet supported"));
+            make_error(ErrorCode::CorruptHeader,
+                       "Encrypted RA: file too small for header"));
     }
 
+    // Derive Blowfish key from RSA-encrypted key source
+    std::span<const uint8_t, 80> key_source(data + KEY_SOURCE_OFFSET, 80);
+    auto key_result = derive_blowfish_key(key_source);
+    if (!key_result) {
+        return std::unexpected(key_result.error());
+    }
+
+    Blowfish bf(*key_result);
+
+    // Decrypt the 8-byte header block
+    uint8_t dec_header[8];
+    std::memcpy(dec_header, data + ENCRYPTED_HDR_OFFSET, 8);
+    bf.decrypt_block(dec_header);
+
+    // Extract c_files and body_size from decrypted header
+    uint16_t count = read_u16(dec_header);
+    // body_size at dec_header+2 is available for validation if needed
+    (void)read_u32(dec_header + 2);
+
+    if (count == 0 || count > MAX_FILE_COUNT) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader,
+                       "Encrypted RA: invalid file count"));
+    }
+
+    // Calculate encrypted index size: P = ((c_files * 12) + 5) & ~7
+    size_t raw_index_size = size_t(count) * INDEX_ENTRY_SIZE;
+    size_t P = (raw_index_size + 5) & ~size_t(7);
+
+    if (size < ENCRYPTED_IDX_OFFSET + P) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptIndex,
+                       "Encrypted RA: truncated encrypted index"));
+    }
+
+    // Decrypt the index block
+    std::vector<uint8_t> dec_index(P);
+    std::memcpy(dec_index.data(), data + ENCRYPTED_IDX_OFFSET, P);
+    bf.decrypt(dec_index);
+
+    // Reconstruct full index:
+    // - First 2 bytes come from dec_header[6..7]
+    // - Remaining (c_files*12 - 2) bytes from dec_index
+    std::vector<uint8_t> full_index(raw_index_size);
+    full_index[0] = dec_header[6];
+    full_index[1] = dec_header[7];
+    if (raw_index_size > 2) {
+        std::memcpy(full_index.data() + 2, dec_index.data(), raw_index_size - 2);
+    }
+
+    // Body offset = 92 + P
+    uint32_t body_offset = static_cast<uint32_t>(ENCRYPTED_IDX_OFFSET + P);
+
+    impl.info.file_count = count;
+    impl.body_offset = body_offset;
+
+    parse_index(impl, full_index.data(), count, body_offset);
+    impl.info.game = mix_detect_game(MixFormat::RA, impl.entries);
+
+    return {};
+}
+
+// RA format - unencrypted
+static Result<void> parse_ra_unencrypted(MixReaderImpl& impl,
+                                          const uint8_t* data,
+                                          size_t size) {
     if (size < 10) {
         return std::unexpected(
             make_error(ErrorCode::CorruptHeader, "RA header too small"));
@@ -310,12 +408,29 @@ static Result<void> parse_ra(MixReaderImpl& impl,
     }
 
     impl.info.file_count = count;
-    impl.body_offset     = static_cast<uint32_t>(hdr_size);
+    impl.body_offset = static_cast<uint32_t>(hdr_size);
 
     parse_index(impl, data + 10, count, impl.body_offset);
     impl.info.game = mix_detect_game(MixFormat::RA, impl.entries);
 
     return {};
+}
+
+// RA format
+static Result<void> parse_ra(MixReaderImpl& impl,
+                              const uint8_t* data,
+                              size_t size,
+                              uint32_t flags) {
+    impl.info.format       = MixFormat::RA;
+    impl.info.encrypted    = (flags & FLAG_ENCRYPTED) != 0;
+    impl.info.has_checksum = (flags & FLAG_CHECKSUM) != 0;
+    impl.info.file_size    = size;
+
+    if (impl.info.encrypted) {
+        return parse_ra_encrypted(impl, data, size);
+    }
+
+    return parse_ra_unencrypted(impl, data, size);
 }
 
 // Format detection

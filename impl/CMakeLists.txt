@@ -53,6 +53,7 @@ set(LIBWESTWOOD_SOURCES
     libwestwood/src/error.cpp
     libwestwood/src/io.cpp
     libwestwood/src/lcw.cpp
+    libwestwood/src/blowfish.cpp
     libwestwood/src/mix.cpp
     libwestwood/src/vqa.cpp
     libwestwood/src/aud.cpp
@@ -61,6 +62,7 @@ set(LIBWESTWOOD_SOURCES
     libwestwood/src/tmp.cpp
     libwestwood/src/pal.cpp
     libwestwood/src/fnt.cpp
+    libwestwood/src/cps.cpp
 )
 
 set(LIBWESTWOOD_HEADERS
@@ -68,6 +70,7 @@ set(LIBWESTWOOD_HEADERS
     libwestwood/include/westwood/error.h
     libwestwood/include/westwood/io.h
     libwestwood/include/westwood/lcw.h
+    libwestwood/include/westwood/blowfish.h
     libwestwood/include/westwood/mix.h
     libwestwood/include/westwood/vqa.h
     libwestwood/include/westwood/aud.h
@@ -76,6 +79,7 @@ set(LIBWESTWOOD_HEADERS
     libwestwood/include/westwood/tmp.h
     libwestwood/include/westwood/pal.h
     libwestwood/include/westwood/fnt.h
+    libwestwood/include/westwood/cps.h
 )
 
 # --------------------------------------------------------------------
@@ -139,6 +143,7 @@ if(WWD_BUILD_CLI)
     endfunction()
 
     add_wwd_tool(mix-tool mix-tool/main.cpp)
+    add_wwd_tool(blowfish-tool blowfish-tool/main.cpp)
     add_wwd_tool(vqa-tool vqa-tool/main.cpp)
     add_wwd_tool(aud-tool aud-tool/main.cpp)
     add_wwd_tool(shp-tool shp-tool/main.cpp)
@@ -146,6 +151,7 @@ if(WWD_BUILD_CLI)
     add_wwd_tool(tmp-tool tmp-tool/main.cpp)
     add_wwd_tool(pal-tool pal-tool/main.cpp)
     add_wwd_tool(fnt-tool fnt-tool/main.cpp)
+    add_wwd_tool(cps-tool cps-tool/main.cpp)
 endif()
 
 # --------------------------------------------------------------------
@@ -173,8 +179,8 @@ if(WWD_INSTALL)
     endif()
 
     if(WWD_BUILD_CLI)
-        install(TARGETS mix-tool vqa-tool aud-tool shp-tool
-                        wsa-tool tmp-tool pal-tool fnt-tool
+        install(TARGETS mix-tool blowfish-tool vqa-tool aud-tool shp-tool
+                        wsa-tool tmp-tool pal-tool fnt-tool cps-tool
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
     endif()

@@ -1090,49 +1090,50 @@ VQA CBFZ and VPRZ chunks indicate mode with first data byte:
 
 #### Command Byte Encoding
 
-| Range | Command | Parameters | Description |
-|-------|---------|------------|-------------|
-| 0x00-0x3F | Literal | N bytes | Copy (cmd & 0x3F) + 1 bytes from source |
-| 0x40-0x7F | Short ref | 1 byte | Copy 3-10 bytes from output (12-bit offset) |
-| 0x80 | End | none | End of compressed data |
-| 0x81-0xBF | Long ref | 2 bytes | Copy from output (16-bit offset) |
-| 0xC0-0xFD | Fill | 1 byte | Fill (cmd & 0x3F) + 3 bytes with value |
-| 0xFE | Long fill | 3 bytes | Fill uint16 count bytes with value |
-| 0xFF | Long copy | 4 bytes | Copy uint16 count from output (uint16 offset) |
+| Range | Command | Bytes | Description |
+|-------|---------|-------|-------------|
+| 0x00-0x7F | Short copy | 2 | Copy 3-10 bytes from relative offset (always relative) |
+| 0x80 | End | 1 | End marker (count=0 literal) |
+| 0x81-0xBF | Literal | 1+N | Copy (cmd & 0x3F) bytes from source |
+| 0xC0-0xFD | Medium copy | 3 | Copy (cmd & 0x3F)+3 bytes from offset |
+| 0xFE | Long fill | 4 | Fill uint16 count bytes with value |
+| 0xFF | Long copy | 5 | Copy uint16 count from uint16 offset |
+
+**Note:** The command byte layout differs from early documentation. This encoding
+was confirmed via C&C source code (LCW.CPP) and tested against game files.
 
 #### Decompression (Pseudocode)
 
 ```
+// Check for relative mode indicator
+if first_byte == 0x00:
+    skip first byte
+    use_relative = true
+
 while not end:
     cmd = read_byte()
 
-    if cmd == 0x80:
-        break  // End marker
-
-    else if cmd < 0x40:
-        // Literal copy
-        copy (cmd + 1) bytes from source to dest
-
-    else if cmd < 0x80:
-        // Short back-reference (relative)
-        count = ((cmd & 0x70) >> 4) + 3   // 3 bits: 3-10 bytes
+    if cmd < 0x80:
+        // Short relative copy (always relative)
+        count = ((cmd & 0x70) >> 4) + 3   // 3-10 bytes
         offset = ((cmd & 0x0F) << 8) | read_byte()
         copy count bytes from (dest - offset) to dest
 
     else if cmd < 0xC0:
-        // Long back-reference
-        count = ((cmd & 0x3F) << 8) | read_byte()
-        offset = read_uint16()
-        if relative_mode:
-            copy count bytes from (dest - offset)  // backwards
-        else:
-            copy count bytes from dest_start[offset]  // absolute
+        // Literal bytes
+        count = cmd & 0x3F
+        if count == 0:
+            break  // End marker (0x80)
+        copy count bytes from source to dest
 
     else if cmd < 0xFE:
-        // Short fill
+        // Medium copy (absolute or relative)
         count = (cmd & 0x3F) + 3
-        value = read_byte()
-        fill count bytes with value
+        offset = read_uint16()
+        if use_relative:
+            copy count bytes from (dest - offset)
+        else:
+            copy count bytes from dest_start[offset]
 
     else if cmd == 0xFE:
         // Long fill
@@ -1141,13 +1142,13 @@ while not end:
         fill count bytes with value
 
     else:  // cmd == 0xFF
-        // Long copy with separate count
+        // Long copy (absolute or relative)
         count = read_uint16()
         offset = read_uint16()
-        if relative_mode:
-            copy count bytes from (dest - offset)  // backwards
+        if use_relative:
+            copy count bytes from (dest - offset)
         else:
-            copy count bytes from dest_start[offset]  // absolute
+            copy count bytes from dest_start[offset]
 ```
 
 ### 11.2 Format40 - XOR Delta Encoding
