@@ -378,7 +378,7 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
                       << "\n"
                       << "Options:\n"
                       << "    --mp4           Export as MP4 (default, requires ffmpeg)\n"
-                      << "    --quality <N>   H.264 CRF value, 0-51 (default: 18)\n"
+                      << "    --quality <N>   Quality: high/medium/low or CRF 0-51 (default: 18)\n"
                       << "    --frames        Export as PNG sequence + WAV\n"
                       << "    --wav           Export audio only as WAV\n"
                       << "    -o, --output    Output path (default: input name + .mp4)\n"
@@ -409,10 +409,20 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
                 std::cerr << "vqa-tool: error: --quality requires a value\n";
                 return 1;
             }
-            quality = std::atoi(argv[++i]);
-            if (quality < 0 || quality > 51) {
-                std::cerr << "vqa-tool: error: quality must be 0-51\n";
-                return 1;
+            const char* qval = argv[++i];
+            // Accept named presets or numeric CRF
+            if (std::strcmp(qval, "high") == 0) {
+                quality = 15;  // Higher quality, larger file
+            } else if (std::strcmp(qval, "medium") == 0) {
+                quality = 23;  // Balanced
+            } else if (std::strcmp(qval, "low") == 0) {
+                quality = 28;  // Lower quality, smaller file
+            } else {
+                quality = std::atoi(qval);
+                if (quality < 0 || quality > 51) {
+                    std::cerr << "vqa-tool: error: quality must be high/medium/low or 0-51\n";
+                    return 1;
+                }
             }
             continue;
         }
