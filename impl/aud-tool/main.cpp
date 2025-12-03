@@ -1,4 +1,5 @@
 #include <westwood/aud.h>
+#include <westwood/io.h>
 
 #include <cstring>
 #include <fstream>
@@ -59,18 +60,23 @@ static std::string format_size(uint32_t size) {
 static int cmd_info(int argc, char* argv[]) {
     std::string file_path;
     bool json_output = false;
+    bool verbose = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: aud-tool info [--json] <file.aud>\n";
+            std::cerr << "Usage: aud-tool info [--json] [-v] <file.aud>\n";
             return 0;
         }
         if (std::strcmp(arg, "--json") == 0) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (std::strcmp(arg, "-v") == 0 || std::strcmp(arg, "--verbose") == 0) {
+            verbose = true;
+            continue;
+        }
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "aud-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -84,7 +90,18 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::AudReader::open(file_path);
+    // Open from file or stdin
+    wwd::Result<std::unique_ptr<wwd::AudReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "aud-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        result = wwd::AudReader::open(std::span(*data));
+    } else {
+        result = wwd::AudReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "aud-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -127,6 +144,14 @@ static int cmd_info(int argc, char* argv[]) {
             float ratio = static_cast<float>(info.uncompressed_size) /
                          static_cast<float>(info.compressed_size);
             std::cout << "Ratio:        " << std::setprecision(1) << ratio << ":1\n";
+        }
+        if (verbose) {
+            std::cout << "\nDetailed info:\n";
+            std::cout << "  Header size:    12 bytes\n";
+            std::cout << "  File size:      " << format_size(info.file_size) << " bytes\n";
+            if (file_path != "-") {
+                std::cout << "  File:           " << file_path << "\n";
+            }
         }
     }
 
@@ -202,7 +227,7 @@ static int cmd_export(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "aud-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -216,10 +241,16 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
+    bool from_stdin = (file_path == "-");
+
     // Default output path
     if (output_path.empty()) {
-        fs::path p(file_path);
-        output_path = p.stem().string() + ".wav";
+        if (from_stdin) {
+            output_path = "-";  // Default to stdout when reading from stdin
+        } else {
+            fs::path p(file_path);
+            output_path = p.stem().string() + ".wav";
+        }
     }
 
     // Check if output exists
@@ -229,8 +260,20 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open AUD file
-    auto result = wwd::AudReader::open(file_path);
+    // Open AUD file from file or stdin
+    std::vector<uint8_t> stdin_data;  // Keep data alive for span
+    wwd::Result<std::unique_ptr<wwd::AudReader>> result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "aud-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::AudReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::AudReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "aud-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -288,7 +331,7 @@ static int cmd_export(int argc, char* argv[]) {
     } else {
         if (!write_wav(output_path, samples, info.sample_rate, info.channels)) {
             std::cerr << "aud-tool: error: failed to write: " << output_path << "\n";
-            return 1;
+            return 3;  // I/O error
         }
 
         if (verbose) {

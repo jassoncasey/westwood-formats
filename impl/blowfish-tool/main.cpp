@@ -18,7 +18,8 @@ static void print_usage() {
               << "\n"
               << "Options:\n"
               << "    -h, --help     Show help message\n"
-              << "    -v, --version  Show version\n"
+              << "    -V, --version  Show version\n"
+              << "    -v, --verbose  Verbose output\n"
               << "\n"
               << "The decrypt/encrypt commands use the Westwood public key to derive\n"
               << "the Blowfish key from the first 80 bytes of input.\n";
@@ -331,10 +332,20 @@ int main(int argc, char* argv[]) {
         print_usage();
         return 0;
     }
-    if (std::strcmp(cmd, "-v") == 0 || std::strcmp(cmd, "--version") == 0) {
+    if (std::strcmp(cmd, "-V") == 0 || std::strcmp(cmd, "--version") == 0) {
         print_version();
         return 0;
     }
+
+    // Check for verbose flag
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "-v") == 0 || std::strcmp(argv[i], "--verbose") == 0) {
+            verbose = true;
+            break;
+        }
+    }
+    (void)verbose;  // Used for consistent interface, not yet implemented
 
     if (std::strcmp(cmd, "info") == 0) {
         if (argc < 3) {

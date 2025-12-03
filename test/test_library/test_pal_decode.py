@@ -14,9 +14,12 @@ from pathlib import Path
 class TestPalValidation:
     """Test PAL file validation."""
 
-    def test_valid_768_bytes(self, pal_tool, run):
+    def test_valid_768_bytes(self, pal_tool, testdata_pal_files, run):
         """Test acceptance of valid 768-byte PAL file."""
-        pytest.skip("Requires extracted PAL test files")
+        if not testdata_pal_files:
+            pytest.skip("No PAL files in testdata")
+        result = run(pal_tool, "info", testdata_pal_files[0])
+        result.assert_success()
 
     def test_invalid_size_too_small(self, pal_tool, temp_file, run):
         """Test rejection of undersized PAL file."""

@@ -13,18 +13,21 @@
 namespace wwd {
 
 struct WsaFrameInfo {
-    uint32_t offset;
-    uint32_t size;
+    uint32_t offset;      // Frame data offset (24-bit from file)
+    uint32_t size;        // Frame data size
+    uint8_t format;       // Frame format flags (0x80=LCW, 0x40=XOR ref, 0x20=XOR prev)
+    uint32_t ref_offset;  // Reference frame offset (for XOR delta)
+    uint8_t ref_format;   // Reference frame format
 };
 
 struct WsaInfo {
     uint16_t frame_count;
     uint16_t width;
     uint16_t height;
-    uint32_t delta_size;    // largest delta frame
+    uint16_t delta_size;    // Decompression buffer size
     uint32_t palette_offset;
     bool     has_palette;
-    bool     has_loop;      // frame 0 has delta (looping animation)
+    bool     has_loop;      // Has loop frame at end
     uint32_t file_size;
 };
 

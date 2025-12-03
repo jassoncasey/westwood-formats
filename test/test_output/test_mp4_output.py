@@ -150,7 +150,9 @@ class TestMp4Dimensions:
             pytest.skip("Info not implemented")
         import json
         info = json.loads(info_result.stdout_text)
-        source_width = info.get("width") or info.get("Width")
+        # VQA JSON has nested video.width structure
+        video = info.get("video", {})
+        source_width = video.get("width") or info.get("width") or info.get("Width")
 
         out_file = temp_dir / "test.mp4"
         result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
@@ -179,7 +181,9 @@ class TestMp4Dimensions:
             pytest.skip("Info not implemented")
         import json
         info = json.loads(info_result.stdout_text)
-        source_height = info.get("height") or info.get("Height")
+        # VQA JSON has nested video.height structure
+        video = info.get("video", {})
+        source_height = video.get("height") or info.get("height") or info.get("Height")
 
         out_file = temp_dir / "test.mp4"
         result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
@@ -212,7 +216,9 @@ class TestMp4FrameRate:
             pytest.skip("Info not implemented")
         import json
         info = json.loads(info_result.stdout_text)
-        source_fps = info.get("frame_rate") or info.get("FrameRate") or info.get("fps")
+        # VQA JSON has nested video.frameRate structure
+        video = info.get("video", {})
+        source_fps = video.get("frameRate") or info.get("frame_rate") or info.get("FrameRate") or info.get("fps")
 
         out_file = temp_dir / "test.mp4"
         result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))

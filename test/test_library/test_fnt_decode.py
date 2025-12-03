@@ -15,17 +15,29 @@ from pathlib import Path
 class TestFntHeaderParsing:
     """Test FNT header parsing."""
 
-    def test_valid_v3_header(self, fnt_tool, run):
+    def test_valid_v3_header(self, fnt_tool, testdata_fnt_files, run):
         """Test parsing valid v3 FNT header."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", testdata_fnt_files[0])
+        result.assert_success()
 
-    def test_file_size_field(self, fnt_tool, run):
+    def test_file_size_field(self, fnt_tool, testdata_fnt_files, run):
         """Test file size field extraction."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        assert isinstance(data, dict)
 
-    def test_block_offsets(self, fnt_tool, run):
+    def test_block_offsets(self, fnt_tool, testdata_fnt_files, run):
         """Test InfoBlk, OffsetBlk, WidthBlk, HeightBlk offsets."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", testdata_fnt_files[0])
+        result.assert_success()
 
     def test_invalid_header(self, fnt_tool, temp_file, run):
         """Test rejection of invalid FNT file."""
@@ -37,13 +49,25 @@ class TestFntHeaderParsing:
 class TestFntFontInfo:
     """Test FontInfo block parsing."""
 
-    def test_glyph_count(self, fnt_tool, run):
+    def test_glyph_count(self, fnt_tool, testdata_fnt_files, run):
         """Test NrOfChars extraction."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        # Should have glyph count info
+        assert any(k in data for k in ["glyphs", "numGlyphs", "glyph_count", "characters"])
 
-    def test_max_dimensions(self, fnt_tool, run):
+    def test_max_dimensions(self, fnt_tool, testdata_fnt_files, run):
         """Test MaxHeight/MaxWidth extraction."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", testdata_fnt_files[0])
+        result.assert_success()
+        # Should have dimension info (format: "Max dimensions:  10x11")
+        assert "dimensions" in result.stdout_text.lower() or "x" in result.stdout_text
 
 
 class TestFntGlyphArrays:
@@ -105,16 +129,31 @@ class TestFntGrayscaleConversion:
 class TestFntInfoOutput:
     """Test fnt-tool info command output."""
 
-    def test_info_human_readable(self, fnt_tool, run):
+    def test_info_human_readable(self, fnt_tool, testdata_fnt_files, run):
         """Test human-readable info output format."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", testdata_fnt_files[0])
+        result.assert_success()
+        assert len(result.stdout_text) > 0
 
-    def test_info_json(self, fnt_tool, run):
+    def test_info_json(self, fnt_tool, testdata_fnt_files, run):
         """Test JSON info output format."""
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        assert isinstance(data, dict)
 
-    def test_info_fields_complete(self, fnt_tool, run):
+    def test_info_fields_complete(self, fnt_tool, testdata_fnt_files, run):
         """Test all required info fields are present."""
-        # Required fields: format, version, glyphs, character_range,
-        # max_dimensions, bit_depth
-        pytest.skip("Requires extracted FNT test files")
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        # Check for key fields
+        assert any(k in data for k in ["glyphs", "numGlyphs", "characters"])

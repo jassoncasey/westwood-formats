@@ -55,11 +55,17 @@ class TestImageGoldenFiles:
         if not golden_png.exists():
             pytest.skip(f"No golden file: {golden_png}")
 
-        out_file = temp_dir / "test.png"
+        out_prefix = temp_dir / "test"
         result = run(shp_tool, "export", "-p", testdata_pal_files[0],
-                    testdata_shp_files[0], "-o", str(out_file))
+                    testdata_shp_files[0], "-o", str(out_prefix))
         if result.returncode != 0:
             pytest.skip("Export not implemented")
+
+        # SHP export creates numbered frames, find the first one
+        frame_files = sorted(temp_dir.glob("test_*.png"))
+        if not frame_files:
+            pytest.skip("No frame files exported")
+        out_file = frame_files[0]
 
         # PNG comparison (may need to ignore metadata chunks)
         actual = out_file.read_bytes()
@@ -179,14 +185,19 @@ class TestRegressionPrevention:
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
 
-        out_file = temp_dir / "test.png"
+        out_base = temp_dir / "test.png"
         result = run(shp_tool, "export", "-p", testdata_pal_files[0],
-                    testdata_shp_files[0], "-o", str(out_file))
+                    testdata_shp_files[0], "-o", str(out_base))
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
-        # Verify PNG is RGBA (color type 6)
-        data = out_file.read_bytes()
+        # shp-tool creates numbered frame files (test.png_000.png, etc)
+        png_files = list(temp_dir.glob("test.png_*.png"))
+        if not png_files:
+            pytest.skip("No PNG files created")
+
+        # Verify first PNG is RGBA (color type 6)
+        data = png_files[0].read_bytes()
         color_type = data[25]
         assert color_type == 6, "Should be RGBA for transparency support"
 

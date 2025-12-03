@@ -1,5 +1,6 @@
 #include <westwood/wsa.h>
 #include <westwood/pal.h>
+#include <westwood/io.h>
 
 #include <cmath>
 #include <cstring>
@@ -64,7 +65,7 @@ static int cmd_info(int argc, char* argv[]) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "wsa-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -78,7 +79,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::WsaReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::WsaReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "wsa-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::WsaReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::WsaReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "wsa-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -517,7 +531,7 @@ static int cmd_export(int argc, char* argv[]) {
             transparent = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "wsa-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -531,8 +545,22 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open WSA file
-    auto wsa_result = wwd::WsaReader::open(file_path);
+    bool from_stdin = (file_path == "-");
+
+    // Open WSA file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::WsaReader>> wsa_result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "wsa-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        wsa_result = wwd::WsaReader::open(std::span(stdin_data));
+    } else {
+        wsa_result = wwd::WsaReader::open(file_path);
+    }
     if (!wsa_result) {
         std::cerr << "wsa-tool: error: " << wsa_result.error().message() << "\n";
         return 2;

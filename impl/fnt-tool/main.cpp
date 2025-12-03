@@ -1,4 +1,5 @@
 #include <westwood/fnt.h>
+#include <westwood/io.h>
 
 #include <cmath>
 #include <cstring>
@@ -34,6 +35,17 @@ static void print_version() {
     std::cout << "fnt-tool " << VERSION << "\n";
 }
 
+static const char* format_name(wwd::FntFormat format) {
+    switch (format) {
+        case wwd::FntFormat::V2:            return "Westwood FNT v2 (1-bit)";
+        case wwd::FntFormat::V3:            return "Westwood FNT v3 (4-bit)";
+        case wwd::FntFormat::V4:            return "Westwood FNT v4 (8-bit)";
+        case wwd::FntFormat::BitFont:       return "Westwood BitFont (1-bit)";
+        case wwd::FntFormat::UnicodeBitFont: return "Westwood Unicode BitFont (1-bit)";
+        default:                            return "Unknown";
+    }
+}
+
 static int cmd_info(int argc, char* argv[]) {
     std::string file_path;
     bool json_output = false;
@@ -48,7 +60,7 @@ static int cmd_info(int argc, char* argv[]) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "fnt-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -62,7 +74,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::FntReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::FntReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "fnt-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::FntReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::FntReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "fnt-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -73,22 +98,22 @@ static int cmd_info(int argc, char* argv[]) {
 
     if (json_output) {
         std::cout << "{\n";
-        std::cout << "  \"format\": \"Westwood FNT v3\",\n";
+        std::cout << "  \"format\": \"" << format_name(info.format) << "\",\n";
         std::cout << "  \"glyphs\": " << info.glyph_count << ",\n";
         std::cout << "  \"first_char\": " << static_cast<int>(info.first_char) << ",\n";
         std::cout << "  \"last_char\": " << static_cast<int>(info.last_char) << ",\n";
         std::cout << "  \"max_width\": " << static_cast<int>(info.max_width) << ",\n";
         std::cout << "  \"max_height\": " << static_cast<int>(info.height) << ",\n";
-        std::cout << "  \"bit_depth\": 4\n";
+        std::cout << "  \"bits_per_pixel\": " << static_cast<int>(info.bits_per_pixel) << "\n";
         std::cout << "}\n";
     } else {
-        std::cout << "Format:          Westwood FNT v3\n";
+        std::cout << "Format:          " << format_name(info.format) << "\n";
         std::cout << "Glyphs:          " << info.glyph_count << "\n";
         std::cout << "Character range: " << static_cast<int>(info.first_char)
                   << "-" << static_cast<int>(info.last_char) << "\n";
         std::cout << "Max dimensions:  " << static_cast<int>(info.max_width)
                   << "x" << static_cast<int>(info.height) << "\n";
-        std::cout << "Bit depth:       4-bit (16 colors)\n";
+        std::cout << "Bits per pixel:  " << static_cast<int>(info.bits_per_pixel) << "\n";
     }
 
     return 0;
@@ -130,9 +155,10 @@ static uint32_t adler32(const uint8_t* data, size_t len) {
     return (b << 16) | a;
 }
 
-static bool write_png_rgba(const std::string& path,
-                           const uint8_t* rgba,
-                           uint32_t width, uint32_t height) {
+// Write grayscale+alpha PNG (color type 4)
+static bool write_png_ga(const std::string& path,
+                         const uint8_t* ga,
+                         uint32_t width, uint32_t height) {
     init_crc_table();
 
     static const uint8_t png_sig[] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
@@ -173,7 +199,7 @@ static bool write_png_rgba(const std::string& path,
         uint8_t(height >> 24), uint8_t(height >> 16),
         uint8_t(height >> 8), uint8_t(height),
         8,   // Bit depth
-        6,   // Color type: RGBA
+        4,   // Color type: grayscale+alpha
         0,   // Compression
         0,   // Filter
         0    // Interlace
@@ -182,16 +208,14 @@ static bool write_png_rgba(const std::string& path,
 
     // Generate image data with filter bytes
     std::vector<uint8_t> raw_data;
-    raw_data.reserve(height * (1 + width * 4));
+    raw_data.reserve(height * (1 + width * 2));
 
     for (uint32_t y = 0; y < height; y++) {
         raw_data.push_back(0);  // Filter: None
         for (uint32_t x = 0; x < width; x++) {
-            size_t idx = (y * width + x) * 4;
-            raw_data.push_back(rgba[idx]);
-            raw_data.push_back(rgba[idx + 1]);
-            raw_data.push_back(rgba[idx + 2]);
-            raw_data.push_back(rgba[idx + 3]);
+            size_t idx = (y * width + x) * 2;
+            raw_data.push_back(ga[idx]);      // Gray
+            raw_data.push_back(ga[idx + 1]);  // Alpha
         }
     }
 
@@ -252,11 +276,13 @@ static int cmd_export(int argc, char* argv[]) {
     std::string metrics_path;
     bool force = false;
     bool verbose = false;
+    bool frames_mode = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: fnt-tool export <file.fnt> [-o output.png] [-m metrics.json]\n";
+            std::cerr << "Usage: fnt-tool export <file.fnt> [-o output.png] [-m metrics.json]\n"
+                      << "       fnt-tool export <file.fnt> --frames [-o output_prefix]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -285,7 +311,11 @@ static int cmd_export(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (std::strcmp(arg, "--frames") == 0) {
+            frames_mode = true;
+            continue;
+        }
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "fnt-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -299,8 +329,20 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open FNT file
-    auto fnt_result = wwd::FntReader::open(file_path);
+    // Open FNT file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::FntReader>> fnt_result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "fnt-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        fnt_result = wwd::FntReader::open(std::span(stdin_data));
+    } else {
+        fnt_result = wwd::FntReader::open(file_path);
+    }
     if (!fnt_result) {
         std::cerr << "fnt-tool: error: " << fnt_result.error().message() << "\n";
         return 2;
@@ -313,11 +355,59 @@ static int cmd_export(int argc, char* argv[]) {
     // Default output paths
     if (output_path.empty()) {
         fs::path p(file_path);
-        output_path = p.stem().string() + ".png";
+        output_path = p.stem().string() + (frames_mode ? "" : ".png");
     }
+
+    // Frames mode - export individual glyphs
+    if (frames_mode) {
+        int digits = std::max(3, static_cast<int>(std::ceil(std::log10(glyphs.size() + 1))));
+        size_t exported = 0;
+
+        for (size_t i = 0; i < glyphs.size(); ++i) {
+            const auto& g = glyphs[i];
+            if (g.width == 0 || g.height == 0) continue;
+
+            auto glyph_data = reader.decode_glyph(i);
+            if (glyph_data.empty()) continue;
+
+            std::ostringstream fname;
+            fname << output_path << "_" << std::setfill('0')
+                  << std::setw(digits) << i << ".png";
+            std::string final_path = fname.str();
+
+            if (fs::exists(final_path) && !force) {
+                std::cerr << "fnt-tool: error: output file exists: " << final_path
+                          << " (use --force to overwrite)\n";
+                return 1;
+            }
+
+            // Create grayscale+alpha image
+            std::vector<uint8_t> ga(g.width * g.height * 2);
+            for (size_t j = 0; j < glyph_data.size(); ++j) {
+                ga[j * 2] = 255;            // White
+                ga[j * 2 + 1] = glyph_data[j];  // Alpha = intensity
+            }
+
+            if (!write_png_ga(final_path, ga.data(), g.width, g.height)) {
+                std::cerr << "fnt-tool: error: failed to write: " << final_path << "\n";
+                return 3;
+            }
+
+            if (verbose) {
+                std::cerr << "Wrote " << final_path << " (" << g.width << "x"
+                          << g.height << ")\n";
+            }
+            exported++;
+        }
+
+        std::cout << "Exported " << exported << " glyphs\n";
+        return 0;
+    }
+
     if (metrics_path.empty()) {
-        fs::path p(file_path);
-        metrics_path = p.stem().string() + ".json";
+        // Derive JSON path from output path (same directory and stem)
+        fs::path p(output_path);
+        metrics_path = (p.parent_path() / p.stem()).string() + ".json";
     }
 
     // Check if outputs exist
@@ -394,8 +484,8 @@ static int cmd_export(int argc, char* argv[]) {
         std::cerr << "  JSON: " << metrics_path << "\n";
     }
 
-    // Create RGBA atlas (transparent background, white glyphs)
-    std::vector<uint8_t> rgba(atlas_width * final_height * 4, 0);
+    // Create grayscale+alpha atlas (transparent background, white glyphs)
+    std::vector<uint8_t> ga(atlas_width * final_height * 2, 0);
 
     // Render glyphs
     for (const auto& pg : packed) {
@@ -407,27 +497,21 @@ static int cmd_export(int argc, char* argv[]) {
         for (uint32_t gy = 0; gy < pg.height; ++gy) {
             for (uint32_t gx = 0; gx < pg.width; ++gx) {
                 size_t src_idx = gy * pg.width + gx;
-                uint8_t value = glyph_data[src_idx];
-
-                // Convert 4-bit value (0-15) to intensity (0-255)
-                // intensity = value * 17 (0->0, 15->255)
-                uint8_t intensity = value * 17;
+                uint8_t intensity = glyph_data[src_idx];
 
                 size_t dst_x = pg.x + gx;
                 size_t dst_y = pg.y + gy;
-                size_t dst_idx = (dst_y * atlas_width + dst_x) * 4;
+                size_t dst_idx = (dst_y * atlas_width + dst_x) * 2;
 
                 // White glyph with intensity as alpha
-                rgba[dst_idx] = 255;      // R
-                rgba[dst_idx + 1] = 255;  // G
-                rgba[dst_idx + 2] = 255;  // B
-                rgba[dst_idx + 3] = intensity;  // A
+                ga[dst_idx] = 255;          // Gray (white)
+                ga[dst_idx + 1] = intensity;  // Alpha
             }
         }
     }
 
     // Write PNG
-    if (!write_png_rgba(output_path, rgba.data(), atlas_width, final_height)) {
+    if (!write_png_ga(output_path, ga.data(), atlas_width, final_height)) {
         std::cerr << "fnt-tool: error: failed to write: " << output_path << "\n";
         return 1;
     }

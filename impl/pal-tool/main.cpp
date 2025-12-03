@@ -1,4 +1,5 @@
 #include <westwood/pal.h>
+#include <westwood/io.h>
 
 #include <cstring>
 #include <fstream>
@@ -45,7 +46,7 @@ static int cmd_info(int argc, char* argv[]) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "pal-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -59,7 +60,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::PalReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::PalReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "pal-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::PalReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::PalReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "pal-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -264,7 +278,7 @@ static int cmd_export(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "pal-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -278,10 +292,16 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
+    bool from_stdin = (file_path == "-");
+
     // Default output path
     if (output_path.empty()) {
-        fs::path p(file_path);
-        output_path = p.stem().string() + ".png";
+        if (from_stdin) {
+            output_path = "-";  // Default to stdout when reading from stdin
+        } else {
+            fs::path p(file_path);
+            output_path = p.stem().string() + ".png";
+        }
     }
 
     // Check if output exists
@@ -291,8 +311,20 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open PAL file
-    auto result = wwd::PalReader::open(file_path);
+    // Open PAL file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::PalReader>> result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "pal-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::PalReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::PalReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "pal-tool: error: " << result.error().message() << "\n";
         return 2;

@@ -1,5 +1,6 @@
 #include <westwood/cps.h>
 #include <westwood/pal.h>
+#include <westwood/io.h>
 
 #include <cstring>
 #include <fstream>
@@ -58,7 +59,7 @@ static int cmd_info(int argc, char* argv[]) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "cps-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -72,7 +73,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::CpsReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::CpsReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "cps-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::CpsReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::CpsReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "cps-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -275,7 +289,7 @@ static int cmd_export(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "cps-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -289,8 +303,22 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open CPS file
-    auto cps_result = wwd::CpsReader::open(file_path);
+    bool from_stdin = (file_path == "-");
+
+    // Open CPS file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::CpsReader>> cps_result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "cps-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        cps_result = wwd::CpsReader::open(std::span(stdin_data));
+    } else {
+        cps_result = wwd::CpsReader::open(file_path);
+    }
     if (!cps_result) {
         std::cerr << "cps-tool: error: " << cps_result.error().message() << "\n";
         return 2;

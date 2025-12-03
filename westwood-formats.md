@@ -137,6 +137,11 @@ Bit 0: Has audio
 Bit 2: Has overlay
 ```
 
+**V1 defaults:** V1 files may have zero values that require defaults:
+- Freq=0 → 22050 Hz
+- Channels=0 → 1 (mono)
+- Bits=0 → 8-bit
+
 **Test vector (cd1_SIZZLE.VQA):**
 ```
 Version=2, Flags=0x0001, Frames=1624, 320x200
@@ -288,9 +293,20 @@ else:
     codebook_index = hi * 256 + lo
 ```
 
-**V1 Format (Legend of Kyrandia):**
+**V1 Format (Legend of Kyrandia III, Monopoly, early C&C):**
 
-16-bit indices, where hi == 0xFF indicates solid color.
+Uses 16-bit values per block in Intel byte order (little-endian). VPT data is
+2 * blocks_x * blocks_y bytes. For each block position:
+```
+lo_val = data[block_idx * 2]
+hi_val = data[block_idx * 2 + 1]
+if hi_val == 0xFF:
+    block is solid color (palette index = lo_val)
+else:
+    codebook_index = (hi_val * 256 + lo_val) / 8
+```
+
+Max codebook size in V1 is 0x0F00 blocks.
 
 **V3 HiColor Format (Tiberian Sun):**
 

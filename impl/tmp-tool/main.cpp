@@ -1,5 +1,6 @@
 #include <westwood/tmp.h>
 #include <westwood/pal.h>
+#include <westwood/io.h>
 
 #include <cmath>
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <filesystem>
+#include <sstream>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -36,8 +38,10 @@ static void print_version() {
 
 static const char* format_name(wwd::TmpFormat format) {
     switch (format) {
-        case wwd::TmpFormat::TD: return "TD/RA TMP";
-        case wwd::TmpFormat::RA: return "TD/RA TMP";
+        case wwd::TmpFormat::TD:  return "TD TMP (orthographic)";
+        case wwd::TmpFormat::RA:  return "RA TMP (orthographic)";
+        case wwd::TmpFormat::TS:  return "TS TMP (isometric)";
+        case wwd::TmpFormat::RA2: return "RA2 TMP (isometric)";
         default:                  return "Unknown";
     }
 }
@@ -56,7 +60,7 @@ static int cmd_info(int argc, char* argv[]) {
             json_output = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "tmp-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -70,7 +74,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::TmpReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::TmpReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "tmp-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::TmpReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::TmpReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "tmp-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -79,23 +96,50 @@ static int cmd_info(int argc, char* argv[]) {
     const auto& reader = *result.value();
     const auto& info = reader.info();
 
+    bool is_iso = reader.is_isometric();
+
     if (json_output) {
         std::cout << "{\n";
         std::cout << "  \"format\": \"" << format_name(info.format) << "\",\n";
+        std::cout << "  \"isometric\": " << (is_iso ? "true" : "false") << ",\n";
         std::cout << "  \"tiles\": " << info.tile_count << ",\n";
         std::cout << "  \"empty_tiles\": " << info.empty_count << ",\n";
         std::cout << "  \"tile_width\": " << info.tile_width << ",\n";
         std::cout << "  \"tile_height\": " << info.tile_height << ",\n";
+        if (is_iso) {
+            std::cout << "  \"template_width\": " << info.template_width << ",\n";
+            std::cout << "  \"template_height\": " << info.template_height << ",\n";
+        }
         std::cout << "  \"index_offset\": " << info.index_start << ",\n";
         std::cout << "  \"image_offset\": " << info.image_start << "\n";
         std::cout << "}\n";
     } else {
-        std::cout << "Format:           " << format_name(info.format) << "\n";
-        std::cout << "Tiles:            " << info.tile_count << " total ("
+        std::cout << "Format:             " << format_name(info.format) << "\n";
+        std::cout << "Tiles:              " << info.tile_count << " total ("
                   << info.empty_count << " empty)\n";
-        std::cout << "Tile dimensions:  " << info.tile_width << "x"
-                  << info.tile_height << "\n";
-        std::cout << "Image data offset: 0x" << std::hex << info.image_start
+        std::cout << "Tile dimensions:    " << info.tile_width << "x"
+                  << info.tile_height;
+        if (is_iso) {
+            std::cout << " (diamond shape)";
+        }
+        std::cout << "\n";
+        if (is_iso) {
+            std::cout << "Template size:      " << info.template_width << "x"
+                      << info.template_height << " cells\n";
+
+            // Show tile details for isometric tiles
+            const auto& tiles = reader.tiles();
+            int extra_count = 0, z_data_count = 0;
+            for (const auto& tile : tiles) {
+                if (tile.valid) {
+                    if (tile.has_extra) extra_count++;
+                    if (tile.has_z_data) z_data_count++;
+                }
+            }
+            std::cout << "Extra images:       " << extra_count << " tiles\n";
+            std::cout << "Z-data (depth):     " << z_data_count << " tiles\n";
+        }
+        std::cout << "Image data offset:  0x" << std::hex << info.image_start
                   << std::dec << "\n";
         std::cout << "Index table offset: 0x" << std::hex << info.index_start
                   << std::dec << "\n";
@@ -243,11 +287,13 @@ static int cmd_export(int argc, char* argv[]) {
     std::string palette_path;
     bool force = false;
     bool verbose = false;
+    bool frames_mode = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: tmp-tool export <file.tmp> -p <palette> [-o output.png]\n";
+            std::cerr << "Usage: tmp-tool export <file.tmp> -p <palette> [-o output.png]\n"
+                      << "       tmp-tool export <file.tmp> -p <palette> --frames [-o output_prefix]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -276,7 +322,11 @@ static int cmd_export(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (std::strcmp(arg, "--frames") == 0) {
+            frames_mode = true;
+            continue;
+        }
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "tmp-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -295,8 +345,22 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
-    // Open TMP file
-    auto tmp_result = wwd::TmpReader::open(file_path);
+    bool from_stdin = (file_path == "-");
+
+    // Open TMP file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::TmpReader>> tmp_result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "tmp-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        tmp_result = wwd::TmpReader::open(std::span(stdin_data));
+    } else {
+        tmp_result = wwd::TmpReader::open(file_path);
+    }
     if (!tmp_result) {
         std::cerr << "tmp-tool: error: " << tmp_result.error().message() << "\n";
         return 2;
@@ -318,7 +382,99 @@ static int cmd_export(int argc, char* argv[]) {
     // Default output path
     if (output_path.empty()) {
         fs::path p(file_path);
-        output_path = p.stem().string() + ".png";
+        output_path = p.stem().string() + (frames_mode ? "" : ".png");
+    }
+
+    bool is_iso = reader.is_isometric();
+
+    // Frames mode - export individual tiles
+    if (frames_mode) {
+        int digits = std::max(3, static_cast<int>(std::ceil(std::log10(tiles.size() + 1))));
+        size_t exported = 0;
+
+        for (size_t i = 0; i < tiles.size(); ++i) {
+            auto tile_data = reader.decode_tile(i);
+            if (tile_data.empty()) continue;
+
+            std::ostringstream fname;
+            fname << output_path << "_" << std::setfill('0')
+                  << std::setw(digits) << i << ".png";
+            std::string final_path = fname.str();
+
+            if (fs::exists(final_path) && !force) {
+                std::cerr << "tmp-tool: error: output file exists: " << final_path
+                          << " (use --force to overwrite)\n";
+                return 1;
+            }
+
+            // Create RGBA image for this tile
+            std::vector<uint8_t> rgba(info.tile_width * info.tile_height * 4, 0);
+
+            if (is_iso) {
+                // Isometric rendering for individual tile
+                uint32_t half_height = info.tile_height / 2;
+                uint32_t half_width = info.tile_width / 2;
+                size_t src_idx = 0;
+
+                for (uint32_t ty = 0; ty < info.tile_height; ++ty) {
+                    uint32_t row_pixels;
+                    if (ty < half_height) {
+                        row_pixels = 4 + ty * 4;
+                    } else {
+                        row_pixels = 4 + (info.tile_height - 1 - ty) * 4;
+                    }
+                    uint32_t x_start = half_width - row_pixels / 2;
+
+                    for (uint32_t px = 0; px < row_pixels && src_idx < tile_data.size(); ++px) {
+                        uint32_t tx = x_start + px;
+                        size_t dst_idx = (ty * info.tile_width + tx) * 4;
+
+                        uint8_t pal_idx = tile_data[src_idx++];
+                        auto color = palette.color_8bit(pal_idx);
+
+                        rgba[dst_idx] = color.r;
+                        rgba[dst_idx + 1] = color.g;
+                        rgba[dst_idx + 2] = color.b;
+                        rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;
+                    }
+                }
+            } else {
+                // Rectangular tile
+                for (uint32_t ty = 0; ty < info.tile_height; ++ty) {
+                    for (uint32_t tx = 0; tx < info.tile_width; ++tx) {
+                        size_t src_idx = ty * info.tile_width + tx;
+                        if (src_idx >= tile_data.size()) break;
+
+                        size_t dst_idx = src_idx * 4;
+                        uint8_t pal_idx = tile_data[src_idx];
+                        auto color = palette.color_8bit(pal_idx);
+
+                        rgba[dst_idx] = color.r;
+                        rgba[dst_idx + 1] = color.g;
+                        rgba[dst_idx + 2] = color.b;
+                        rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;
+                    }
+                }
+            }
+
+            std::ofstream out(final_path, std::ios::binary);
+            if (!out) {
+                std::cerr << "tmp-tool: error: cannot open: " << final_path << "\n";
+                return 3;
+            }
+            if (!write_png_rgba(out, rgba.data(), info.tile_width, info.tile_height)) {
+                std::cerr << "tmp-tool: error: failed to write: " << final_path << "\n";
+                return 3;
+            }
+
+            if (verbose) {
+                std::cerr << "Wrote " << final_path << "\n";
+            }
+            exported++;
+        }
+
+        std::cout << "Exported " << exported << " tiles\n";
+        return 0;
     }
 
     // Check if output exists
@@ -339,6 +495,7 @@ static int cmd_export(int argc, char* argv[]) {
 
     if (verbose) {
         std::cerr << "Exporting " << file_path << " to " << output_path << "\n";
+        std::cerr << "  Format: " << format_name(info.format) << "\n";
         std::cerr << "  Tiles: " << info.tile_count << " (" << valid_tiles << " valid)\n";
         std::cerr << "  Grid: " << grid_cols << "x" << grid_rows << "\n";
         std::cerr << "  Output: " << img_width << "x" << img_height << "\n";
@@ -358,18 +515,55 @@ static int cmd_export(int argc, char* argv[]) {
         uint32_t tile_x = (static_cast<uint32_t>(i) % grid_cols) * info.tile_width;
         uint32_t tile_y = (static_cast<uint32_t>(i) / grid_cols) * info.tile_height;
 
-        for (uint32_t ty = 0; ty < info.tile_height; ++ty) {
-            for (uint32_t tx = 0; tx < info.tile_width; ++tx) {
-                size_t src_idx = ty * info.tile_width + tx;
-                size_t dst_idx = ((tile_y + ty) * img_width + (tile_x + tx)) * 4;
+        if (is_iso) {
+            // Isometric diamond shape: data is stored row by row
+            // Row 0: center 4 pixels (for 48x24), expanding out then contracting
+            // The pixel count per row follows: 4, 8, 12, ..., 48, ..., 12, 8, 4
+            // Pixel indices increase by 4 each row until middle, then decrease
+            uint32_t half_height = info.tile_height / 2;
+            uint32_t half_width = info.tile_width / 2;
+            size_t src_idx = 0;
 
-                uint8_t pal_idx = tile_data[src_idx];
-                auto color = palette.color_8bit(pal_idx);
+            for (uint32_t ty = 0; ty < info.tile_height; ++ty) {
+                // Calculate row width: increases by 4 until middle, then decreases
+                uint32_t row_pixels;
+                if (ty < half_height) {
+                    row_pixels = 4 + ty * 4;  // 4, 8, 12, ..., up to tile_width
+                } else {
+                    row_pixels = 4 + (info.tile_height - 1 - ty) * 4;
+                }
 
-                rgba[dst_idx] = color.r;
-                rgba[dst_idx + 1] = color.g;
-                rgba[dst_idx + 2] = color.b;
-                rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;  // Index 0 = transparent
+                // Calculate starting x offset for this row (centered)
+                uint32_t x_start = half_width - row_pixels / 2;
+
+                for (uint32_t px = 0; px < row_pixels && src_idx < tile_data.size(); ++px) {
+                    uint32_t tx = x_start + px;
+                    size_t dst_idx = ((tile_y + ty) * img_width + (tile_x + tx)) * 4;
+
+                    uint8_t pal_idx = tile_data[src_idx++];
+                    auto color = palette.color_8bit(pal_idx);
+
+                    rgba[dst_idx] = color.r;
+                    rgba[dst_idx + 1] = color.g;
+                    rgba[dst_idx + 2] = color.b;
+                    rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;
+                }
+            }
+        } else {
+            // Rectangular tiles (TD/RA)
+            for (uint32_t ty = 0; ty < info.tile_height; ++ty) {
+                for (uint32_t tx = 0; tx < info.tile_width; ++tx) {
+                    size_t src_idx = ty * info.tile_width + tx;
+                    size_t dst_idx = ((tile_y + ty) * img_width + (tile_x + tx)) * 4;
+
+                    uint8_t pal_idx = tile_data[src_idx];
+                    auto color = palette.color_8bit(pal_idx);
+
+                    rgba[dst_idx] = color.r;
+                    rgba[dst_idx + 1] = color.g;
+                    rgba[dst_idx + 2] = color.b;
+                    rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;  // Index 0 = transparent
+                }
             }
         }
     }

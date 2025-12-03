@@ -25,7 +25,9 @@ float VqaReader::duration() const {
 }
 
 bool VqaReader::is_hicolor() const {
-    return (impl_->info.header.flags & 0x10) != 0;
+    // HiColor is indicated by flag 0x10 OR colors == 0
+    const auto& hdr = impl_->info.header;
+    return (hdr.flags & 0x10) != 0 || hdr.colors == 0;
 }
 
 uint32_t VqaReader::block_count() const {
@@ -190,10 +192,26 @@ static Result<void> parse_vqa(VqaReaderImpl& impl,
     if (!result) return result;
 
     // Fill in audio info from header
+    // V1 files may have 0 values that need defaults
     impl.info.audio.sample_rate = impl.info.header.sample_rate;
     impl.info.audio.channels = impl.info.header.channels;
     impl.info.audio.bits = impl.info.header.bits;
-    impl.info.audio.has_audio = (impl.info.header.channels > 0);
+
+    // Apply V1 defaults if needed
+    if (impl.info.header.version == 1) {
+        if (impl.info.audio.sample_rate == 0) {
+            impl.info.audio.sample_rate = 22050;
+        }
+        if (impl.info.audio.channels == 0) {
+            impl.info.audio.channels = 1;  // mono
+        }
+        if (impl.info.audio.bits == 0) {
+            impl.info.audio.bits = 8;
+        }
+    }
+
+    impl.info.audio.has_audio = (impl.info.audio.channels > 0 ||
+                                  impl.info.header.flags & 0x01);
 
     // Scan for audio chunk type
     scan_audio_chunks(impl.info.audio, data);
@@ -394,6 +412,11 @@ Result<std::vector<VqaFrame>> VqaReader::decode_video() const {
         if (t == make_tag("FINF")) {
             // Frame info - skip
         }
+        else if (t == make_tag("VQFR") || t == make_tag("VQFL")) {
+            // V3 container chunks - contains sub-chunks
+            // Don't skip the data, just continue parsing sub-chunks inside
+            continue;
+        }
         else if (t == make_tag("CBF0") || t == make_tag("CBFZ")) {
             // Full codebook (uncompressed or LCW)
             auto chunk_data = r.read_bytes(*size);
@@ -494,8 +517,9 @@ Result<std::vector<VqaFrame>> VqaReader::decode_video() const {
 
                 if (t == make_tag("VPTZ") || t == make_tag("VPRZ")) {
                     // LCW compressed - calculate expected size
+                    // V1 uses 2 bytes per block, V2 uses 1 byte (or 2 for hicolor)
                     size_t vpt_size = static_cast<size_t>(blocks_x) * blocks_y;
-                    if (hicolor) vpt_size *= 2;
+                    if (hdr.version == 1 || hicolor) vpt_size *= 2;
                     auto decomp = lcw_decompress(*chunk_data, vpt_size);
                     if (decomp) {
                         decompressed = std::move(*decomp);
@@ -510,22 +534,45 @@ Result<std::vector<VqaFrame>> VqaReader::decode_video() const {
                 }
 
                 // Each byte/word is an index into the codebook
-                // For 8-bit: each byte is a codebook index
+                // V1: 16-bit values, index = (HiVal*256+LoVal)/8, HiVal=0xff for uniform
+                // V2: single bytes (or 16-bit for hicolor)
                 size_t vpt_idx = 0;
+                bool is_v1 = (hdr.version == 1);
                 for (int by = 0; by < blocks_y && vpt_idx < vpt_data.size(); ++by) {
                     for (int bx = 0; bx < blocks_x && vpt_idx < vpt_data.size(); ++bx) {
                         uint16_t cb_idx;
-                        if (hicolor && vpt_idx + 1 < vpt_data.size()) {
+                        bool uniform_block = false;
+                        uint8_t uniform_color = 0;
+
+                        if (is_v1 && vpt_idx + 1 < vpt_data.size()) {
+                            // V1: uses 16-bit values with special encoding
+                            uint8_t lo_val = vpt_data[vpt_idx];
+                            uint8_t hi_val = vpt_data[vpt_idx + 1];
+                            vpt_idx += 2;
+
+                            if (hi_val == 0xff) {
+                                // Uniform color block - lo_val is the palette index
+                                uniform_block = true;
+                                uniform_color = lo_val;
+                                cb_idx = 0;  // Not used
+                            } else {
+                                // Block index = (HiVal*256+LoVal)/8
+                                cb_idx = static_cast<uint16_t>((hi_val * 256 + lo_val) / 8);
+                            }
+                        } else if (hicolor && vpt_idx + 1 < vpt_data.size()) {
+                            // V2 HiColor: 16-bit index
                             cb_idx = vpt_data[vpt_idx] | (vpt_data[vpt_idx + 1] << 8);
                             vpt_idx += 2;
                         } else {
+                            // V2 indexed: single byte
                             cb_idx = vpt_data[vpt_idx++];
                         }
 
-                        if (cb_idx >= hdr.max_blocks) continue;
+                        if (!uniform_block && cb_idx >= hdr.max_blocks) continue;
 
-                        // Copy block from codebook to frame
-                        const uint8_t* cb_block = codebook.data() + cb_idx * block_size;
+                        // Copy block from codebook to frame (or fill with uniform color)
+                        const uint8_t* cb_block = uniform_block ? nullptr :
+                            codebook.data() + cb_idx * block_size;
 
                         for (int py = 0; py < hdr.block_h; ++py) {
                             for (int px = 0; px < hdr.block_w; ++px) {
@@ -535,7 +582,12 @@ Result<std::vector<VqaFrame>> VqaReader::decode_video() const {
 
                                 size_t dst_idx = (fy * hdr.width + fx) * 3;
 
-                                if (hicolor) {
+                                if (uniform_block) {
+                                    // V1 uniform color block - fill with palette color
+                                    frame_buffer[dst_idx] = palette[uniform_color].r;
+                                    frame_buffer[dst_idx + 1] = palette[uniform_color].g;
+                                    frame_buffer[dst_idx + 2] = palette[uniform_color].b;
+                                } else if (hicolor) {
                                     // RGB555
                                     size_t src_idx = (py * hdr.block_w + px) * 2;
                                     uint16_t pixel = cb_block[src_idx] | (cb_block[src_idx + 1] << 8);
@@ -624,6 +676,8 @@ Result<std::vector<int16_t>> VqaReader::decode_audio() const {
                     }
                 }
             }
+            // Skip padding byte if chunk size is odd (IFF alignment)
+            if (*size & 1) r.skip(1);
         }
         else if (t == make_tag("SND1")) {
             // Westwood ADPCM compressed (VQA v1)
@@ -631,6 +685,8 @@ Result<std::vector<int16_t>> VqaReader::decode_audio() const {
             if (chunk_data && chunk_data->size() > 0) {
                 decode_westwood_adpcm(chunk_data->data(), chunk_data->size(), samples);
             }
+            // Skip padding byte if chunk size is odd (IFF alignment)
+            if (*size & 1) r.skip(1);
         }
         else if (t == make_tag("SND2")) {
             // IMA ADPCM compressed
@@ -672,9 +728,11 @@ Result<std::vector<int16_t>> VqaReader::decode_audio() const {
                     }
                 }
             }
+            // Skip padding byte if chunk size is odd (IFF alignment)
+            if (*size & 1) r.skip(1);
         }
         else {
-            // Skip other chunks
+            // Skip other chunks (including padding)
             r.skip(*size + (*size & 1));
         }
     }

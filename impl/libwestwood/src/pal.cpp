@@ -31,10 +31,14 @@ Color PalReader::color_8bit(uint8_t index) const {
 
 static Result<void> parse_pal(PalReaderImpl& impl,
                                std::span<const uint8_t> data) {
-    // Standard palette is 768 bytes (256 * 3)
+    // Standard palette is exactly 768 bytes (256 * 3)
     if (data.size() < 768) {
         return std::unexpected(
             make_error(ErrorCode::CorruptHeader, "PAL file too small"));
+    }
+    if (data.size() > 768) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "PAL file too large"));
     }
 
     impl.info.entries = 256;

@@ -129,4 +129,7 @@ private:
 // File loading
 WWD_API Result<std::vector<uint8_t>> load_file(const std::string& path);
 
+// Load from stdin (reads until EOF)
+WWD_API Result<std::vector<uint8_t>> load_stdin();
+
 } // namespace wwd

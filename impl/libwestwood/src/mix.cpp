@@ -433,6 +433,178 @@ static Result<void> parse_ra(MixReaderImpl& impl,
     return parse_ra_unencrypted(impl, data, size);
 }
 
+// Renegade format (MIX1)
+// Header (12 bytes):
+//   0-3:   "MIX1" signature
+//   4-7:   header_offset (index section offset)
+//   8-11:  names_offset (filename table offset)
+// At header_offset:
+//   file_count (4 bytes)
+//   file_count entries of 12 bytes each: CRC32, offset (from data start), size
+// At names_offset:
+//   series of: 1-byte length + filename bytes
+// Data section starts at offset 12 (after header)
+static Result<void> parse_rg(MixReaderImpl& impl,
+                              const uint8_t* data,
+                              size_t size) {
+    constexpr size_t HEADER_SIZE = 12;
+    constexpr size_t DATA_START = 12;
+
+    if (size < HEADER_SIZE) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "RG header too small"));
+    }
+
+    // Read header
+    uint32_t header_offset = read_u32(data + 4);
+    uint32_t names_offset = read_u32(data + 8);
+
+    impl.info.format = MixFormat::RG;
+    impl.info.game = MixGame::Renegade;
+    impl.info.encrypted = false;
+    impl.info.has_checksum = false;
+    impl.info.file_size = size;
+    impl.body_offset = DATA_START;
+
+    // Read file count from header_offset
+    if (header_offset + 4 > size) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptIndex, "RG index offset beyond file"));
+    }
+
+    uint32_t file_count = read_u32(data + header_offset);
+
+    if (file_count > MAX_FILE_COUNT) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "RG file count too large"));
+    }
+
+    impl.info.file_count = static_cast<uint16_t>(file_count);
+
+    // Read index entries (after file count)
+    size_t index_start = header_offset + 4;
+    size_t index_size = file_count * INDEX_ENTRY_SIZE;
+
+    if (index_start + index_size > size) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptIndex, "RG index truncated"));
+    }
+
+    // Parse entries - offsets are relative to data section start (offset 12)
+    impl.entries.reserve(file_count);
+    const uint8_t* ptr = data + index_start;
+
+    for (uint32_t i = 0; i < file_count; ++i) {
+        MixEntry e;
+        e.hash = read_u32(ptr);         // CRC32
+        e.offset = read_u32(ptr + 4) + DATA_START;  // Convert to absolute offset
+        e.size = read_u32(ptr + 8);
+        impl.hash_to_index[e.hash] = impl.entries.size();
+        impl.entries.push_back(std::move(e));
+        ptr += INDEX_ENTRY_SIZE;
+    }
+
+    // Read filename table if present
+    if (names_offset > 0 && names_offset < size) {
+        const uint8_t* name_ptr = data + names_offset;
+        const uint8_t* name_end = data + size;
+
+        for (size_t i = 0; i < impl.entries.size() && name_ptr < name_end; ++i) {
+            uint8_t name_len = *name_ptr++;
+            if (name_ptr + name_len > name_end) break;
+
+            std::string filename(reinterpret_cast<const char*>(name_ptr), name_len);
+            name_ptr += name_len;
+
+            // Match filename to entry by CRC
+            uint32_t crc = mix_hash_ts(filename);  // RG uses CRC32 like TS
+            auto it = impl.hash_to_index.find(crc);
+            if (it != impl.hash_to_index.end()) {
+                impl.entries[it->second].name = filename;
+                impl.name_to_index[filename] = it->second;
+            }
+        }
+    }
+
+    return {};
+}
+
+// BIG format (Generals/Zero Hour)
+// Header: magic(4) + archive_size(4) + entry_count(4,BE) + index_size(4,BE)
+// Entry: offset(4,BE) + size(4,BE) + filename(null-terminated)
+static Result<void> parse_big(MixReaderImpl& impl,
+                               const uint8_t* data,
+                               size_t size) {
+    if (size < 16) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "BIG header too small"));
+    }
+
+    uint32_t magic = read_u32(data);
+    impl.info.format = MixFormat::BIG;
+    impl.info.game = (magic == BIG4_MAGIC) ? MixGame::ZeroHour : MixGame::Generals;
+    impl.info.encrypted = false;
+    impl.info.has_checksum = false;
+    impl.info.file_size = size;
+
+    // Archive size is LE, but entry count and index size are BE (mixed endianness)
+    uint32_t archive_size = read_u32(data + 4);
+    uint32_t entry_count = read_u32be(data + 8);
+    uint32_t index_size = read_u32be(data + 12);
+
+    (void)archive_size;  // Not used for parsing
+
+    impl.info.file_count = static_cast<uint16_t>(std::min(entry_count, uint32_t(65535)));
+
+    // Parse entries starting at offset 16
+    // Each entry: offset(4,BE) + size(4,BE) + filename(null-terminated)
+    const uint8_t* ptr = data + 16;
+    const uint8_t* end = data + 16 + index_size;
+
+    if (end > data + size) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptIndex, "BIG index beyond file"));
+    }
+
+    impl.entries.reserve(entry_count);
+
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        if (ptr + 8 > end) {
+            return std::unexpected(
+                make_error(ErrorCode::CorruptIndex, "BIG entry truncated"));
+        }
+
+        MixEntry e;
+        e.offset = read_u32be(ptr);
+        e.size = read_u32be(ptr + 4);
+        ptr += 8;
+
+        // Read null-terminated filename
+        const uint8_t* name_start = ptr;
+        while (ptr < end && *ptr != '\0') {
+            ++ptr;
+        }
+        if (ptr >= end) {
+            return std::unexpected(
+                make_error(ErrorCode::CorruptIndex, "BIG filename unterminated"));
+        }
+
+        e.name.assign(reinterpret_cast<const char*>(name_start), ptr - name_start);
+        ++ptr;  // Skip null terminator
+
+        // Generate hash from filename for lookup compatibility
+        e.hash = mix_hash_ts(e.name);
+
+        impl.hash_to_index[e.hash] = impl.entries.size();
+        impl.name_to_index[e.name] = impl.entries.size();
+        impl.entries.push_back(std::move(e));
+    }
+
+    impl.body_offset = 0;  // Offsets are absolute in BIG format
+
+    return {};
+}
+
 // Format detection
 static Result<void> parse(MixReaderImpl& impl,
                            const uint8_t* data,
@@ -445,12 +617,10 @@ static Result<void> parse(MixReaderImpl& impl,
     uint32_t magic = read_u32(data);
 
     if (magic == MIX_RG_MAGIC) {
-        return std::unexpected(
-            make_error(ErrorCode::UnsupportedFormat, "MIX-RG not supported"));
+        return parse_rg(impl, data, size);
     }
     if (magic == BIG_MAGIC || magic == BIG4_MAGIC) {
-        return std::unexpected(
-            make_error(ErrorCode::UnsupportedFormat, "BIG not supported"));
+        return parse_big(impl, data, size);
     }
 
     if (read_u16(data) == 0) {

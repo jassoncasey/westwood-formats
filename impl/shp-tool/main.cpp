@@ -1,5 +1,6 @@
 #include <westwood/shp.h>
 #include <westwood/pal.h>
+#include <westwood/io.h>
 
 #include <cmath>
 #include <cstring>
@@ -19,7 +20,7 @@ static void print_usage(std::ostream& out = std::cout) {
               << "\n"
               << "Commands:\n"
               << "    info        Show sprite information\n"
-              << "    export      Export to PNG format\n"
+              << "    export      Export to PNG or GIF format\n"
               << "\n"
               << "Options:\n"
               << "    -h, --help      Show help message\n"
@@ -30,6 +31,9 @@ static void print_usage(std::ostream& out = std::cout) {
               << "    -p, --palette   PAL file for color lookup\n"
               << "    --frames        Output one PNG per frame (default)\n"
               << "    --sheet         Output single sprite sheet PNG\n"
+              << "    --gif           Output animated GIF\n"
+              << "    --fps <N>       Frame rate for GIF (default: 15)\n"
+              << "    --transparent   Treat index 0 as transparent in GIF\n"
               << "    --json          Output info in JSON format\n";
 }
 
@@ -45,7 +49,10 @@ static const char* format_name(wwd::ShpFormat format) {
     }
 }
 
-static std::string frame_format_str(uint8_t fmt) {
+static std::string frame_format_str(uint8_t fmt, wwd::ShpFormat shp_fmt) {
+    if (shp_fmt == wwd::ShpFormat::TS) {
+        return "RLE-Zero";
+    }
     if (fmt & 0x80) return "LCW";
     if (fmt & 0x40) return "XORPrev";
     if (fmt & 0x20) return "XORLCW";
@@ -77,7 +84,7 @@ static int cmd_info(int argc, char* argv[]) {
             verbose = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "shp-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -91,7 +98,20 @@ static int cmd_info(int argc, char* argv[]) {
         return 1;
     }
 
-    auto result = wwd::ShpReader::open(file_path);
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::ShpReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "shp-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::ShpReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::ShpReader::open(file_path);
+    }
     if (!result) {
         std::cerr << "shp-tool: error: " << result.error().message() << "\n";
         return 2;
@@ -135,12 +155,12 @@ static int cmd_info(int argc, char* argv[]) {
             for (size_t i = 0; i < frames.size(); ++i) {
                 const auto& f = frames[i];
                 std::cout << std::left << std::setw(6) << i
-                          << std::setw(10) << frame_format_str(f.format)
+                          << std::setw(10) << frame_format_str(f.format, info.format)
                           << std::setw(10) << (std::to_string(f.width) + "x" +
                                                std::to_string(f.height))
                           << std::setw(12) << format_offset(f.data_offset);
 
-                if (f.format & 0x20) {
+                if (info.format == wwd::ShpFormat::TD && (f.format & 0x20)) {
                     std::cout << format_offset(f.ref_offset);
                 } else {
                     std::cout << "-";
@@ -287,6 +307,199 @@ static bool write_png_rgba(std::ostream& out,
     return out.good();
 }
 
+// Simple GIF writer with LZW compression
+class GifWriter {
+public:
+    GifWriter(std::ostream& out, uint16_t width, uint16_t height,
+              const std::array<wwd::Color, 256>& palette, bool loop)
+        : out_(out), width_(width), height_(height) {
+
+        // GIF header
+        out_.write("GIF89a", 6);
+
+        // Logical screen descriptor
+        write_u16(width);
+        write_u16(height);
+        out_.put(0xF7);  // Global color table, 256 colors (8 bits)
+        out_.put(0);     // Background color
+        out_.put(0);     // Pixel aspect ratio
+
+        // Global color table
+        for (int i = 0; i < 256; ++i) {
+            out_.put(palette[i].r);
+            out_.put(palette[i].g);
+            out_.put(palette[i].b);
+        }
+
+        // NETSCAPE extension for looping
+        if (loop) {
+            out_.put(0x21);  // Extension
+            out_.put(0xFF);  // Application extension
+            out_.put(11);    // Block size
+            out_.write("NETSCAPE2.0", 11);
+            out_.put(3);     // Sub-block size
+            out_.put(1);     // Loop extension
+            out_.put(0);     // Loop count (0 = infinite)
+            out_.put(0);
+            out_.put(0);     // Block terminator
+        }
+    }
+
+    void write_frame(const std::vector<uint8_t>& pixels, uint16_t delay_cs,
+                     bool transparent, uint8_t trans_idx = 0) {
+        // Graphic control extension
+        out_.put(0x21);  // Extension
+        out_.put(0xF9);  // Graphic control
+        out_.put(4);     // Block size
+
+        uint8_t flags = 0x04;  // Disposal: do not dispose
+        if (transparent) {
+            flags |= 0x01;  // Transparent color flag
+        }
+        out_.put(flags);
+
+        write_u16(delay_cs);
+        out_.put(transparent ? trans_idx : 0);
+        out_.put(0);  // Block terminator
+
+        // Image descriptor
+        out_.put(0x2C);
+        write_u16(0);  // Left
+        write_u16(0);  // Top
+        write_u16(width_);
+        write_u16(height_);
+        out_.put(0);  // No local color table
+
+        // LZW compressed data
+        write_lzw(pixels);
+    }
+
+    void finish() {
+        out_.put(0x3B);  // GIF trailer
+    }
+
+private:
+    std::ostream& out_;
+    uint16_t width_, height_;
+
+    void write_u16(uint16_t v) {
+        out_.put(v & 0xFF);
+        out_.put((v >> 8) & 0xFF);
+    }
+
+    void write_lzw(const std::vector<uint8_t>& pixels) {
+        const int min_code_size = 8;
+        out_.put(min_code_size);
+
+        const int clear_code = 256;
+        const int eoi_code = 257;
+        const int first_code = 258;
+        const int max_code = 4095;
+
+        std::vector<std::vector<uint8_t>> table;
+        auto reset_table = [&]() {
+            table.clear();
+            table.resize(first_code);
+            for (int i = 0; i < 256; ++i) {
+                table[i] = { static_cast<uint8_t>(i) };
+            }
+        };
+
+        reset_table();
+        int code_size = min_code_size + 1;
+        int next_code = first_code;
+
+        std::vector<uint8_t> output;
+        int bit_pos = 0;
+
+        auto output_code = [&](int code) {
+            for (int i = 0; i < code_size; ++i) {
+                if ((bit_pos % 8) == 0) {
+                    output.push_back(0);
+                }
+                if (code & (1 << i)) {
+                    output.back() |= (1 << (bit_pos % 8));
+                }
+                bit_pos++;
+            }
+        };
+
+        auto flush_output = [&]() {
+            size_t pos = 0;
+            while (pos < output.size()) {
+                size_t chunk = std::min(size_t(255), output.size() - pos);
+                out_.put(static_cast<char>(chunk));
+                out_.write(reinterpret_cast<const char*>(output.data() + pos), chunk);
+                pos += chunk;
+            }
+            output.clear();
+            bit_pos = 0;
+        };
+
+        output_code(clear_code);
+
+        if (pixels.empty()) {
+            output_code(eoi_code);
+            flush_output();
+            out_.put(0);
+            return;
+        }
+
+        std::vector<uint8_t> current = { pixels[0] };
+
+        for (size_t i = 1; i < pixels.size(); ++i) {
+            std::vector<uint8_t> test = current;
+            test.push_back(pixels[i]);
+
+            bool found = false;
+            for (size_t j = 0; j < table.size(); ++j) {
+                if (table[j] == test) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                current = test;
+            } else {
+                for (size_t j = 0; j < table.size(); ++j) {
+                    if (table[j] == current) {
+                        output_code(static_cast<int>(j));
+                        break;
+                    }
+                }
+
+                if (next_code <= max_code) {
+                    table.push_back(test);
+                    next_code++;
+
+                    if (next_code > (1 << code_size) && code_size < 12) {
+                        code_size++;
+                    }
+                } else {
+                    output_code(clear_code);
+                    reset_table();
+                    code_size = min_code_size + 1;
+                    next_code = first_code;
+                }
+
+                current = { pixels[i] };
+            }
+        }
+
+        for (size_t j = 0; j < table.size(); ++j) {
+            if (table[j] == current) {
+                output_code(static_cast<int>(j));
+                break;
+            }
+        }
+
+        output_code(eoi_code);
+        flush_output();
+        out_.put(0);
+    }
+};
+
 static int cmd_export(int argc, char* argv[]) {
     std::string file_path;
     std::string output_path;
@@ -294,7 +507,9 @@ static int cmd_export(int argc, char* argv[]) {
     bool force = false;
     bool verbose = false;
     bool as_sheet = false;
-    (void)0;  // as_frames not needed, default mode
+    bool as_gif = false;
+    int fps = 15;
+    bool transparent = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
@@ -336,7 +551,25 @@ static int cmd_export(int argc, char* argv[]) {
             // frames mode is default, nothing to do
             continue;
         }
-        if (arg[0] == '-') {
+        if (std::strcmp(arg, "--gif") == 0) {
+            as_gif = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--fps") == 0) {
+            if (i + 1 < argc) {
+                fps = std::atoi(argv[++i]);
+                if (fps <= 0) fps = 15;
+            } else {
+                std::cerr << "shp-tool: error: --fps requires an argument\n";
+                return 1;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--transparent") == 0) {
+            transparent = true;
+            continue;
+        }
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "shp-tool: error: unknown option: " << arg << "\n";
             return 1;
         }
@@ -355,10 +588,24 @@ static int cmd_export(int argc, char* argv[]) {
         return 1;
     }
 
+    bool from_stdin = (file_path == "-");
+
     // Default: frames mode (handled implicitly when !as_sheet)
 
-    // Open SHP file
-    auto shp_result = wwd::ShpReader::open(file_path);
+    // Open SHP file from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::ShpReader>> shp_result;
+    if (from_stdin) {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "shp-tool: error: " << data.error().message() << "\n";
+            return 2;
+        }
+        stdin_data = std::move(*data);
+        shp_result = wwd::ShpReader::open(std::span(stdin_data));
+    } else {
+        shp_result = wwd::ShpReader::open(file_path);
+    }
     if (!shp_result) {
         std::cerr << "shp-tool: error: " << shp_result.error().message() << "\n";
         return 2;
@@ -396,7 +643,66 @@ static int cmd_export(int argc, char* argv[]) {
         output_path = p.stem().string();
     }
 
-    if (as_sheet) {
+    if (as_gif) {
+        // Animated GIF output
+        std::string final_path = output_path;
+        if (final_path.find('.') == std::string::npos) {
+            final_path += ".gif";
+        }
+
+        if (final_path != "-" && fs::exists(final_path) && !force) {
+            std::cerr << "shp-tool: error: output file exists: " << final_path
+                      << " (use --force to overwrite)\n";
+            return 1;
+        }
+
+        // Build palette array for GifWriter
+        std::array<wwd::Color, 256> pal_colors;
+        for (int i = 0; i < 256; ++i) {
+            pal_colors[i] = palette.color_8bit(i);
+        }
+
+        // Calculate delay in centiseconds (GIF uses 1/100th second units)
+        uint16_t delay_cs = static_cast<uint16_t>(100 / fps);
+        if (delay_cs == 0) delay_cs = 1;
+
+        if (final_path == "-") {
+            std::ios_base::sync_with_stdio(false);
+            GifWriter gif(std::cout, static_cast<uint16_t>(info.max_width),
+                          static_cast<uint16_t>(info.max_height), pal_colors, true);
+
+            for (const auto& frame_data : frames) {
+                gif.write_frame(frame_data, delay_cs, transparent, 0);
+            }
+            gif.finish();
+        } else {
+            std::ofstream out(final_path, std::ios::binary);
+            if (!out) {
+                std::cerr << "shp-tool: error: cannot open: " << final_path << "\n";
+                return 3;
+            }
+
+            GifWriter gif(out, static_cast<uint16_t>(info.max_width),
+                          static_cast<uint16_t>(info.max_height), pal_colors, true);
+
+            for (const auto& frame_data : frames) {
+                gif.write_frame(frame_data, delay_cs, transparent, 0);
+            }
+            gif.finish();
+
+            if (!out.good()) {
+                std::cerr << "shp-tool: error: failed to write: " << final_path << "\n";
+                return 3;
+            }
+        }
+
+        if (verbose) {
+            std::cerr << "Wrote " << final_path << " (" << frames.size() << " frames, "
+                      << fps << " fps)\n";
+        }
+
+        return 0;
+    } else if (as_sheet) {
         // Single sprite sheet - horizontal layout
         uint32_t sheet_width = info.max_width * static_cast<uint32_t>(frames.size());
         uint32_t sheet_height = info.max_height;

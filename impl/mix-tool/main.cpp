@@ -1,4 +1,5 @@
 #include <westwood/mix.h>
+#include <westwood/io.h>
 
 #include <algorithm>
 #include <cctype>
@@ -21,7 +22,8 @@ static void print_usage() {
               << "    -n, --names <file>  Load filename database\n"
               << "    -o, --output <dir>  Output directory (extract command)\n"
               << "    -h, --help          Show help message\n"
-              << "    -v, --version       Show version\n"
+              << "    -V, --version       Show version\n"
+              << "    -v, --verbose       Verbose output\n"
               << "\n"
               << "Names file format:\n"
               << "    One filename per line. Comments start with #.\n"
@@ -165,16 +167,21 @@ static std::vector<std::string> load_names(const std::string& path) {
     return names;
 }
 
-static int cmd_info(int argc, char* argv[]) {
+static int cmd_info(int argc, char* argv[], bool verbose) {
     std::string file_path;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: mix-tool info <file.mix>\n";
+            std::cerr << "Usage: mix-tool info <file.mix>\n"
+                      << "\n"
+                      << "Use '-' to read from stdin.\n";
             return 0;
         }
-        if (arg[0] == '-') {
+        if (std::strcmp(arg, "-v") == 0 || std::strcmp(arg, "--verbose") == 0) {
+            continue;  // Already handled in main
+        }
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "mix-tool: unknown option: " << arg << "\n";
             return 2;
         }
@@ -188,7 +195,25 @@ static int cmd_info(int argc, char* argv[]) {
         return 2;
     }
 
-    auto result = wwd::MixReader::open(file_path);
+    if (verbose) {
+        std::cerr << "Opening: " << file_path << "\n";
+    }
+
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::MixReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "mix-tool: error: " << data.error().message() << "\n";
+            return 1;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::MixReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::MixReader::open(file_path);
+    }
+
     if (!result) {
         std::cerr << "mix-tool: " << result.error().message() << "\n";
         return 1;
@@ -203,6 +228,8 @@ static int cmd_info(int argc, char* argv[]) {
     std::cout << "Checksum:    " << (info.has_checksum ? "yes" : "no") << "\n";
     std::cout << "Files:       " << info.file_count << "\n";
     std::cout << "Size:        " << format_size(info.file_size) << " bytes\n";
+
+    (void)verbose;  // Verbose info already shown during open
 
     return 0;
 }
@@ -314,7 +341,7 @@ static void list_recursive(wwd::MixReader& reader,
     }
 }
 
-static int cmd_list(int argc, char* argv[]) {
+static int cmd_list(int argc, char* argv[], bool verbose) {
     std::string file_path;
     std::string names_path;
     bool recursive = false;
@@ -328,8 +355,13 @@ static int cmd_list(int argc, char* argv[]) {
                       << "Options:\n"
                       << "    -n, --names <file>  Load filename database\n"
                       << "    -r, --recursive     Recurse into nested MIX files\n"
-                      << "    -t, --tree          Tree view (implied by -r)\n";
+                      << "    -t, --tree          Tree view (implied by -r)\n"
+                      << "\n"
+                      << "Use '-' to read from stdin.\n";
             return 0;
+        }
+        if (std::strcmp(arg, "-v") == 0 || std::strcmp(arg, "--verbose") == 0) {
+            continue;  // Already handled in main
         }
         if (std::strcmp(arg, "-n") == 0 || std::strcmp(arg, "--names") == 0) {
             if (i + 1 >= argc) {
@@ -348,7 +380,7 @@ static int cmd_list(int argc, char* argv[]) {
             tree_mode = true;
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "mix-tool: unknown option: " << arg << "\n";
             return 2;
         }
@@ -362,7 +394,25 @@ static int cmd_list(int argc, char* argv[]) {
         return 2;
     }
 
-    auto result = wwd::MixReader::open(file_path);
+    if (verbose) {
+        std::cerr << "Opening: " << file_path << "\n";
+    }
+
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::MixReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "mix-tool: error: " << data.error().message() << "\n";
+            return 1;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::MixReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::MixReader::open(file_path);
+    }
+
     if (!result) {
         std::cerr << "mix-tool: " << result.error().message() << "\n";
         return 1;
@@ -374,8 +424,18 @@ static int cmd_list(int argc, char* argv[]) {
     std::vector<std::string> names;
     if (!names_path.empty()) {
         names = load_names(names_path);
+        if (verbose) {
+            std::cerr << "Loaded " << names.size() << " names from " << names_path << "\n";
+        }
         if (!names.empty()) {
             reader.resolve_names(names);
+        }
+        if (verbose) {
+            size_t resolved = 0;
+            for (const auto& e : reader.entries()) {
+                if (!e.name.empty()) ++resolved;
+            }
+            std::cerr << "Resolved " << resolved << " / " << reader.entries().size() << " entries\n";
         }
     }
 
@@ -456,7 +516,7 @@ static int cmd_list(int argc, char* argv[]) {
     return 0;
 }
 
-static int cmd_extract(int argc, char* argv[]) {
+static int cmd_extract(int argc, char* argv[], bool verbose) {
     std::string file_path;
     std::string names_path;
     std::string output_dir = ".";
@@ -472,8 +532,13 @@ static int cmd_extract(int argc, char* argv[]) {
                       << "If no files are specified, all files are extracted.\n"
                       << "Files can be specified by name (if names database loaded) or by hex hash (0x...).\n"
                       << "\n"
+                      << "Use '-' to read from stdin.\n"
+                      << "\n"
                       << "Note: Encrypted MIX files must be decrypted first with blowfish-tool.\n";
             return 0;
+        }
+        if (std::strcmp(arg, "-v") == 0 || std::strcmp(arg, "--verbose") == 0) {
+            continue;  // Already handled in main
         }
         if (std::strcmp(arg, "-n") == 0 || std::strcmp(arg, "--names") == 0) {
             if (i + 1 >= argc) {
@@ -491,7 +556,7 @@ static int cmd_extract(int argc, char* argv[]) {
             output_dir = argv[++i];
             continue;
         }
-        if (arg[0] == '-') {
+        if (arg[0] == '-' && arg[1] != '\0') {
             std::cerr << "mix-tool: unknown option: " << arg << "\n";
             return 2;
         }
@@ -507,7 +572,26 @@ static int cmd_extract(int argc, char* argv[]) {
         return 2;
     }
 
-    auto result = wwd::MixReader::open(file_path);
+    if (verbose) {
+        std::cerr << "Opening: " << file_path << "\n";
+        std::cerr << "Output dir: " << output_dir << "\n";
+    }
+
+    // Open from file or stdin
+    std::vector<uint8_t> stdin_data;
+    wwd::Result<std::unique_ptr<wwd::MixReader>> result;
+    if (file_path == "-") {
+        auto data = wwd::load_stdin();
+        if (!data) {
+            std::cerr << "mix-tool: error: " << data.error().message() << "\n";
+            return 1;
+        }
+        stdin_data = std::move(*data);
+        result = wwd::MixReader::open(std::span(stdin_data));
+    } else {
+        result = wwd::MixReader::open(file_path);
+    }
+
     if (!result) {
         std::cerr << "mix-tool: " << result.error().message() << "\n";
         return 1;
@@ -518,6 +602,9 @@ static int cmd_extract(int argc, char* argv[]) {
     // Load and resolve names if provided
     if (!names_path.empty()) {
         auto names = load_names(names_path);
+        if (verbose) {
+            std::cerr << "Loaded " << names.size() << " names from " << names_path << "\n";
+        }
         if (!names.empty()) {
             reader.resolve_names(names);
         }
@@ -658,19 +745,28 @@ int main(int argc, char* argv[]) {
         print_usage();
         return 0;
     }
-    if (std::strcmp(cmd, "-v") == 0 || std::strcmp(cmd, "--version") == 0) {
+    if (std::strcmp(cmd, "-V") == 0 || std::strcmp(cmd, "--version") == 0) {
         print_version();
         return 0;
     }
 
+    // Check for verbose flag
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "-v") == 0 || std::strcmp(argv[i], "--verbose") == 0) {
+            verbose = true;
+            break;
+        }
+    }
+
     if (std::strcmp(cmd, "info") == 0) {
-        return cmd_info(argc - 1, argv + 1);
+        return cmd_info(argc - 1, argv + 1, verbose);
     }
     if (std::strcmp(cmd, "list") == 0) {
-        return cmd_list(argc - 1, argv + 1);
+        return cmd_list(argc - 1, argv + 1, verbose);
     }
     if (std::strcmp(cmd, "extract") == 0) {
-        return cmd_extract(argc - 1, argv + 1);
+        return cmd_extract(argc - 1, argv + 1, verbose);
     }
     if (std::strcmp(cmd, "hash") == 0) {
         return cmd_hash(argc - 1, argv + 1);

@@ -272,13 +272,22 @@ static Result<void> parse_cps(CpsReaderImpl& impl,
     impl.info.has_palette = (impl.info.palette_size == 768);
 
     // Read embedded palette if present
+    // CPS palettes are 6-bit (values 0-63), need to scale to 8-bit
     if (impl.info.has_palette) {
         auto pal_data = r.read_bytes(768);
         if (!pal_data) return std::unexpected(pal_data.error());
 
         const uint8_t* p = pal_data->data();
         for (int i = 0; i < 256; ++i) {
-            impl.palette[i] = Color{p[0], p[1], p[2]};
+            uint8_t r6 = p[0];
+            uint8_t g6 = p[1];
+            uint8_t b6 = p[2];
+            // 6-bit to 8-bit conversion: (val << 2) | (val >> 4)
+            impl.palette[i] = Color{
+                static_cast<uint8_t>((r6 << 2) | (r6 >> 4)),
+                static_cast<uint8_t>((g6 << 2) | (g6 >> 4)),
+                static_cast<uint8_t>((b6 << 2) | (b6 >> 4))
+            };
             p += 3;
         }
         impl.has_palette = true;

@@ -183,46 +183,73 @@ Result<std::vector<int16_t>> AudReader::decode() const {
     std::vector<int16_t> output;
     output.reserve(max_samples);
 
+    // DEAF chunk signature (0x0000DEAF in little-endian)
+    constexpr uint32_t DEAF_SIGNATURE = 0x0000DEAF;
+
     if (info.codec == AudCodec::IMAADPCM) {
         // IMA ADPCM - process chunks
-        // Each chunk has: 2 bytes compressed size, 2 bytes output size, 4 bytes state, data
+        // Chunk format (8-byte preamble + data):
+        //   0-1: compressed size (uint16)
+        //   2-3: output size (uint16)
+        //   4-7: DEAF signature (0x0000DEAF)
+        //   8+:  compressed ADPCM data
+        //
+        // Predictor and step_index persist across the entire stream
         size_t pos = 0;
+        int predictor = 0;
+        int step_index = 0;
 
         while (pos + 8 < audio_size) {
             uint16_t comp_size = audio_data[pos] | (audio_data[pos + 1] << 8);
             uint16_t out_size = audio_data[pos + 2] | (audio_data[pos + 3] << 8);
 
-            // Initial predictor and step index
-            int predictor = static_cast<int16_t>(audio_data[pos + 4] | (audio_data[pos + 5] << 8));
-            int step_index = audio_data[pos + 6];
-            step_index = std::clamp(step_index, 0, 88);
+            // Validate DEAF signature
+            uint32_t signature = audio_data[pos + 4] | (audio_data[pos + 5] << 8) |
+                                (audio_data[pos + 6] << 16) | (audio_data[pos + 7] << 24);
+            if (signature != DEAF_SIGNATURE) {
+                return std::unexpected(
+                    make_error(ErrorCode::CorruptData, "Invalid AUD chunk signature"));
+            }
 
             pos += 8;
 
-            if (pos + comp_size - 4 > audio_size) break;
+            if (pos + comp_size > audio_size) break;
 
-            // Decode chunk
+            // Decode chunk (predictor and step_index persist across chunks)
             size_t chunk_samples = 0;
             std::vector<int16_t> chunk_out(out_size);
 
-            decode_ima_adpcm(audio_data + pos, comp_size - 4,
+            decode_ima_adpcm(audio_data + pos, comp_size,
                            chunk_out.data(), chunk_samples,
                            predictor, step_index);
 
             output.insert(output.end(), chunk_out.begin(),
                          chunk_out.begin() + std::min(chunk_samples, static_cast<size_t>(out_size)));
 
-            pos += comp_size - 4;
+            pos += comp_size;
         }
     } else if (info.codec == AudCodec::WestwoodADPCM) {
         // Westwood ADPCM - process chunks
+        // Same chunk format as IMA ADPCM:
+        //   0-1: compressed size (uint16)
+        //   2-3: output size (uint16)
+        //   4-7: DEAF signature (0x0000DEAF)
+        //   8+:  compressed ADPCM data
         size_t pos = 0;
 
-        while (pos + 4 < audio_size) {
+        while (pos + 8 < audio_size) {
             uint16_t comp_size = audio_data[pos] | (audio_data[pos + 1] << 8);
             uint16_t out_size = audio_data[pos + 2] | (audio_data[pos + 3] << 8);
 
-            pos += 4;
+            // Validate DEAF signature
+            uint32_t signature = audio_data[pos + 4] | (audio_data[pos + 5] << 8) |
+                                (audio_data[pos + 6] << 16) | (audio_data[pos + 7] << 24);
+            if (signature != DEAF_SIGNATURE) {
+                return std::unexpected(
+                    make_error(ErrorCode::CorruptData, "Invalid AUD chunk signature"));
+            }
+
+            pos += 8;
 
             if (pos + comp_size > audio_size) break;
 
@@ -277,8 +304,20 @@ static Result<void> parse_aud(AudReaderImpl& impl,
             impl.info.codec = AudCodec::IMAADPCM;
             break;
         default:
-            impl.info.codec = AudCodec::Unknown;
-            break;
+            return std::unexpected(
+                make_error(ErrorCode::UnsupportedFormat,
+                           "Unknown AUD compression type"));
+    }
+
+    // Validate header values
+    if (impl.info.sample_rate == 0 || impl.info.sample_rate > 96000) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "Invalid AUD sample rate"));
+    }
+
+    if (impl.info.uncompressed_size == 0) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "Invalid AUD uncompressed size"));
     }
 
     impl.info.file_size = static_cast<uint32_t>(data.size());

@@ -54,15 +54,17 @@ class TestShpToolExportPng:
     """Test shp-tool PNG export."""
 
     def test_export_single_frame(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
-        """Test exporting single frame as PNG."""
+        """Test exporting frames as PNG files."""
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
-        out_file = temp_dir / "frame.png"
+        out_base = temp_dir / "frame.png"
         result = run(shp_tool, "export", "-p", testdata_pal_files[0],
-                    testdata_shp_files[0], "-o", str(out_file))
+                    testdata_shp_files[0], "-o", str(out_base))
         if result.returncode != 0:
             pytest.skip("Export not implemented")
-        assert out_file.exists()
+        # Tool creates numbered frame files (frame.png_000.png, etc)
+        png_files = list(temp_dir.glob("frame.png_*.png"))
+        assert len(png_files) > 0, "No frame files were exported"
 
     def test_export_sprite_sheet(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
         """Test exporting sprite sheet."""
@@ -142,12 +144,14 @@ class TestShpToolPalette:
         """Test using external palette file."""
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
-        out_file = temp_dir / "test.png"
+        out_base = temp_dir / "test.png"
         result = run(shp_tool, "export", "-p", testdata_pal_files[0],
-                    testdata_shp_files[0], "-o", str(out_file))
+                    testdata_shp_files[0], "-o", str(out_base))
         if result.returncode != 0:
             pytest.skip("Export not implemented")
-        assert out_file.exists()
+        # Tool creates numbered frame files (test.png_000.png, etc)
+        png_files = list(temp_dir.glob("test.png_*.png"))
+        assert len(png_files) > 0, "No frame files were exported"
 
 
 class TestShpToolErrors:
