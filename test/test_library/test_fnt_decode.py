@@ -73,29 +73,50 @@ class TestFntFontInfo:
 class TestFntGlyphArrays:
     """Test glyph data arrays."""
 
-    def test_offset_array(self):
-        """Test glyph offset array parsing (uint16 entries)."""
-        pytest.skip("Requires extracted FNT test files")
+    def test_glyph_info_in_json(self, fnt_tool, testdata_fnt_files, run):
+        """Test glyph information is available in JSON output."""
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        # Should have glyph-related info
+        assert any(k in data for k in ["glyphs", "numGlyphs", "glyph_count", "characters"])
 
-    def test_width_array(self):
-        """Test width array parsing (uint8 entries)."""
-        pytest.skip("Requires extracted FNT test files")
+    def test_dimensions_in_json(self, fnt_tool, testdata_fnt_files, run):
+        """Test max dimensions are available in JSON output."""
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "info", "--json", testdata_fnt_files[0])
+        result.assert_success()
+        import json
+        data = json.loads(result.stdout_text)
+        # Should have dimension info
+        assert any(k in data for k in ["maxWidth", "max_width", "width"])
+        assert any(k in data for k in ["maxHeight", "max_height", "height"])
 
-    def test_height_array(self):
-        """Test height array parsing (Y-offset + height per glyph)."""
-        pytest.skip("Requires extracted FNT test files")
-
-    def test_shared_glyph_data(self):
-        """Test identical glyphs share data (same offset)."""
-        pytest.skip("Requires extracted FNT test files")
+    def test_multiple_fnt_files(self, fnt_tool, testdata_fnt_files, run):
+        """Test parsing multiple FNT files."""
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        for fnt_file in testdata_fnt_files[:3]:  # Test first 3
+            result = run(fnt_tool, "info", fnt_file)
+            result.assert_success()
 
 
 class TestFntPixelData:
     """Test 4-bit pixel data extraction."""
 
-    def test_4bit_per_pixel(self):
-        """Test pixels are 4-bit (16 colors)."""
-        pytest.skip("Requires extracted FNT test files")
+    def test_export_to_png(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+        """Test exporting font glyphs to PNG."""
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        result = run(fnt_tool, "export", testdata_fnt_files[0], "-o", str(temp_dir / "font.png"))
+        result.assert_success()
+        # Should create PNG file
+        png_files = list(temp_dir.glob("*.png"))
+        assert len(png_files) >= 1
 
     def test_stride_calculation(self):
         """Test stride = (width * 4 + 7) / 8 bytes per scanline."""
@@ -108,9 +129,15 @@ class TestFntPixelData:
         assert calc_stride(4) == 2   # 16 bits -> 2 bytes
         assert calc_stride(5) == 3   # 20 bits -> 3 bytes
 
-    def test_nibble_order(self):
-        """Test low nibble = leftmost pixel."""
-        pytest.skip("Requires extracted FNT test files")
+    def test_export_multiple_fonts(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+        """Test exporting multiple font files."""
+        if not testdata_fnt_files:
+            pytest.skip("No FNT files in testdata")
+        for i, fnt_file in enumerate(testdata_fnt_files[:2]):  # Test first 2
+            out_dir = temp_dir / f"font_{i}"
+            out_dir.mkdir()
+            result = run(fnt_tool, "export", fnt_file, "-o", str(out_dir / "font.png"))
+            result.assert_success()
 
 
 class TestFntGrayscaleConversion:

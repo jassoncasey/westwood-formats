@@ -152,6 +152,7 @@ if(WWD_BUILD_CLI)
     add_wwd_tool(pal-tool pal-tool/main.cpp)
     add_wwd_tool(fnt-tool fnt-tool/main.cpp)
     add_wwd_tool(cps-tool cps-tool/main.cpp)
+    add_wwd_tool(lcw-tool lcw-tool/main.cpp)
 endif()
 
 # --------------------------------------------------------------------
@@ -180,7 +181,7 @@ if(WWD_INSTALL)
 
     if(WWD_BUILD_CLI)
         install(TARGETS mix-tool blowfish-tool vqa-tool aud-tool shp-tool
-                        wsa-tool tmp-tool pal-tool fnt-tool cps-tool
+                        wsa-tool tmp-tool pal-tool fnt-tool cps-tool lcw-tool
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
     endif()

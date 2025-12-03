@@ -96,6 +96,15 @@ def cps_tool() -> Path:
 
 
 @pytest.fixture
+def lcw_tool() -> Path:
+    """Path to lcw-tool executable."""
+    path = BUILD_DIR / "lcw-tool"
+    if not path.exists():
+        pytest.skip("lcw-tool not built")
+    return path
+
+
+@pytest.fixture
 def vqa_tool() -> Path:
     """Path to vqa-tool executable."""
     path = BUILD_DIR / "vqa-tool"
