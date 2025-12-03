@@ -7,9 +7,6 @@ downloads/
 *.ISO
 *.iso
 
-# Reference implementations (clone separately)
-reference/
-
 # macOS
 .DS_Store
 

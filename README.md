@@ -320,8 +320,7 @@ shp-tool export tank.shp -p pal.pal --frames -o frames/tank
 │   └── testdata/             # Test-specific fixtures
 ├── testdata/                 # Extracted test assets (generated)
 ├── scripts/                  # Setup and utility scripts
-├── data/                     # Static data (hash tables, etc.)
-└── reference/                # Reference implementations (not in git)
+└── data/                     # Static data (hash tables, etc.)
 ```
 
 ### Documentation Files
