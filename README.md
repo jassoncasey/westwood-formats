@@ -3,6 +3,30 @@
 A C++ library and CLI toolset for reading and exporting Westwood Studios
 game formats from the Command & Conquer series (1995-2003).
 
+## About This Project
+
+This project is an experiment using [Claude Code](https://claude.com/claude-code)
+to explore AI-assisted software development. The goal: how fast and maintainable
+can a project be when the developer has no prior knowledge of the domain?
+
+Before starting, I knew nothing about Westwood's file formats (MIX archives,
+VQA video, IMA ADPCM audio, LCW compression, etc.). All format knowledge was
+researched and implemented through Claude Code, using publicly available
+documentation and reverse-engineering resources.
+
+**What worked well:**
+- Rapid prototyping of file format parsers
+- Consistent code style across 11 CLI tools
+- Comprehensive test coverage (439 tests)
+- Unix-philosophy CLI design patterns
+- Iterative refinement based on test failures
+
+**Lessons learned:**
+- Complex algorithms (LCW compression, ADPCM decoding) required careful
+  verification against reference implementations
+- Format edge cases often needed multiple research/implement/test cycles
+- Domain expertise accelerates debugging but isn't strictly required
+
 ## Prerequisites
 
 **Required:**
