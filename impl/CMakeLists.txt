@@ -9,11 +9,12 @@ project(westwood-tools
 # Build options
 # --------------------------------------------------------------------
 
-option(WWD_BUILD_SHARED   "Build shared library"           OFF)
-option(WWD_BUILD_STATIC   "Build static library"           ON)
-option(WWD_BUILD_CLI      "Build command-line tools"       ON)
-option(WWD_BUILD_TESTS    "Build tests"                    OFF)
-option(WWD_INSTALL        "Generate install target"        ON)
+option(WWD_BUILD_SHARED      "Build shared library"           OFF)
+option(WWD_BUILD_STATIC      "Build static library"           ON)
+option(WWD_BUILD_CLI         "Build command-line tools"       ON)
+option(WWD_BUILD_TESTS       "Build tests"                    OFF)
+option(WWD_INSTALL           "Generate install target"        ON)
+option(WWD_ENABLE_SANITIZERS "Enable ASan/UBSan"              OFF)
 
 # --------------------------------------------------------------------
 # Global settings
@@ -40,9 +41,16 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
     add_compile_options(-fvisibility=hidden)
+    if(WWD_ENABLE_SANITIZERS)
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
 elseif(MSVC)
     add_compile_options(/W4 /WX /utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    if(WWD_ENABLE_SANITIZERS)
+        add_compile_options(/fsanitize=address)
+    endif()
 endif()
 
 # --------------------------------------------------------------------
@@ -206,5 +214,6 @@ message(STATUS "  Build type:     ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Static library: ${WWD_BUILD_STATIC}")
 message(STATUS "  Shared library: ${WWD_BUILD_SHARED}")
 message(STATUS "  CLI tools:      ${WWD_BUILD_CLI}")
+message(STATUS "  Sanitizers:     ${WWD_ENABLE_SANITIZERS}")
 message(STATUS "  Install:        ${WWD_INSTALL}")
 message(STATUS "")

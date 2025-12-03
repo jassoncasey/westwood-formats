@@ -73,10 +73,18 @@ cmake --build build --config Release
 **Build options:**
 ```bash
 cmake -B build \
-  -DWWD_BUILD_STATIC=ON \   # Build static library (default)
-  -DWWD_BUILD_SHARED=OFF \  # Build shared library
-  -DWWD_BUILD_CLI=ON \      # Build CLI tools (default)
-  -DWWD_BUILD_TESTS=OFF     # Build C++ tests
+  -DWWD_BUILD_STATIC=ON \        # Build static library (default)
+  -DWWD_BUILD_SHARED=OFF \       # Build shared library
+  -DWWD_BUILD_CLI=ON \           # Build CLI tools (default)
+  -DWWD_BUILD_TESTS=OFF \        # Build C++ tests
+  -DWWD_ENABLE_SANITIZERS=OFF    # Enable ASan/UBSan
+```
+
+**Sanitizer build** (for memory error detection):
+```bash
+cmake -B build-asan -DWWD_ENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-asan
+MIX_TOOL=build-asan/mix-tool python3 -m pytest  # Run tests with sanitizers
 ```
 
 **Outputs:**
@@ -368,7 +376,7 @@ mix-tool hash CONQUER.MIX
 - [ ] CI/CD pipeline (GitHub Actions)
 - [ ] Man page generation
 - [ ] Distribution packages (Homebrew, deb, rpm)
-- [ ] Valgrind/ASan memory testing
+- [x] ASan/UBSan memory testing (via `-DWWD_ENABLE_SANITIZERS=ON`)
 
 ### Feature Expansion
 - [ ] Write support (create MIX archives)
