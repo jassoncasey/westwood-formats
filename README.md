@@ -320,7 +320,8 @@ shp-tool export tank.shp -p pal.pal --frames -o frames/tank
 │   └── testdata/             # Test-specific fixtures
 ├── testdata/                 # Extracted test assets (generated)
 ├── scripts/                  # Setup and utility scripts
-└── data/                     # Static data (hash tables, etc.)
+└── data/
+    └── names.txt             # MIX filename database (4841 entries)
 ```
 
 ### Documentation Files
@@ -346,6 +347,20 @@ After building, `impl/build/` contains:
 | `test_library/` | Tests core algorithms (LCW, Format40, ADPCM) |
 | `test_output/` | Validates export formats (PNG, WAV, GIF, MP4) |
 | `test_integration/` | End-to-end workflows (extract, convert, verify) |
+
+### Filename Database
+
+MIX archives store files by hash, not name. The `data/names.txt` database
+contains 4841 known filenames collected from OpenRA, ccmixar, and RA95.EXE
+strings. Use it to resolve hash IDs to human-readable names:
+
+```bash
+# List with resolved names
+mix-tool list archive.mix -n data/names.txt
+
+# Compute hash for a filename
+mix-tool hash CONQUER.MIX
+```
 
 ## TODO
 

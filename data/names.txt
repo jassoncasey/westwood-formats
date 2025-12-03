@@ -1,3 +1,11 @@
+# MIX Filename Database
+# Sources: OpenRA, ccmixar, RA95.EXE strings
+# Entries: 4841
+#
+# Usage: mix-tool list archive.mix -n data/names.txt
+#
+# Unknown hash (no known filename): 0xe1ef9a37
+#
 10MINR.AUD
 120MM.SHP
 12GREEN.FNT
