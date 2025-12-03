@@ -1,6 +1,7 @@
 #include <westwood/shp.h>
 #include <westwood/pal.h>
 #include <westwood/io.h>
+#include <westwood/png.h>
 
 #include <cmath>
 #include <cstring>
@@ -26,6 +27,7 @@ static void print_usage(std::ostream& out = std::cout) {
               << "    -h, --help      Show help message\n"
               << "    -V, --version   Show version\n"
               << "    -v, --verbose   Verbose output\n"
+              << "    -q, --quiet     Suppress non-essential output\n"
               << "    -o, --output    Output file path\n"
               << "    -f, --force     Overwrite existing files\n"
               << "    -p, --palette   PAL file for color lookup\n"
@@ -154,8 +156,9 @@ static int cmd_info(int argc, char* argv[]) {
 
             for (size_t i = 0; i < frames.size(); ++i) {
                 const auto& f = frames[i];
+                std::string ffmt = frame_format_str(f.format, info.format);
                 std::cout << std::left << std::setw(6) << i
-                          << std::setw(10) << frame_format_str(f.format, info.format)
+                          << std::setw(10) << ffmt
                           << std::setw(10) << (std::to_string(f.width) + "x" +
                                                std::to_string(f.height))
                           << std::setw(12) << format_offset(f.data_offset);
@@ -171,140 +174,6 @@ static int cmd_info(int argc, char* argv[]) {
     }
 
     return 0;
-}
-
-// CRC32 table for PNG
-static uint32_t crc_table[256];
-static bool crc_init = false;
-
-static void init_crc_table() {
-    if (crc_init) return;
-    for (int n = 0; n < 256; n++) {
-        uint32_t c = n;
-        for (int k = 0; k < 8; k++) {
-            if (c & 1)
-                c = 0xedb88320L ^ (c >> 1);
-            else
-                c = c >> 1;
-        }
-        crc_table[n] = c;
-    }
-    crc_init = true;
-}
-
-static uint32_t crc32(const uint8_t* data, size_t len) {
-    uint32_t c = 0xffffffffL;
-    for (size_t i = 0; i < len; i++) {
-        c = crc_table[(c ^ data[i]) & 0xff] ^ (c >> 8);
-    }
-    return c ^ 0xffffffffL;
-}
-
-static uint32_t adler32(const uint8_t* data, size_t len) {
-    uint32_t a = 1, b = 0;
-    for (size_t i = 0; i < len; i++) {
-        a = (a + data[i]) % 65521;
-        b = (b + a) % 65521;
-    }
-    return (b << 16) | a;
-}
-
-// Write PNG with RGBA data
-static bool write_png_rgba(std::ostream& out,
-                           const uint8_t* rgba,
-                           uint32_t width, uint32_t height) {
-    init_crc_table();
-
-    static const uint8_t png_sig[] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
-
-    out.write(reinterpret_cast<const char*>(png_sig), 8);
-
-    auto write_chunk = [&](const char* type, const uint8_t* data, size_t len) {
-        uint32_t length = static_cast<uint32_t>(len);
-        uint8_t len_be[4] = {
-            uint8_t(length >> 24), uint8_t(length >> 16),
-            uint8_t(length >> 8), uint8_t(length)
-        };
-        out.write(reinterpret_cast<const char*>(len_be), 4);
-        out.write(type, 4);
-        if (len > 0) {
-            out.write(reinterpret_cast<const char*>(data), len);
-        }
-        std::vector<uint8_t> crc_data(4 + len);
-        std::memcpy(crc_data.data(), type, 4);
-        if (len > 0) {
-            std::memcpy(crc_data.data() + 4, data, len);
-        }
-        uint32_t crc = crc32(crc_data.data(), crc_data.size());
-        uint8_t crc_be[4] = {
-            uint8_t(crc >> 24), uint8_t(crc >> 16),
-            uint8_t(crc >> 8), uint8_t(crc)
-        };
-        out.write(reinterpret_cast<const char*>(crc_be), 4);
-    };
-
-    // IHDR
-    uint8_t ihdr[13] = {
-        uint8_t(width >> 24), uint8_t(width >> 16),
-        uint8_t(width >> 8), uint8_t(width),
-        uint8_t(height >> 24), uint8_t(height >> 16),
-        uint8_t(height >> 8), uint8_t(height),
-        8,   // Bit depth
-        6,   // Color type: RGBA
-        0,   // Compression
-        0,   // Filter
-        0    // Interlace
-    };
-    write_chunk("IHDR", ihdr, 13);
-
-    // Generate image data with filter bytes
-    std::vector<uint8_t> raw_data;
-    raw_data.reserve(height * (1 + width * 4));
-
-    for (uint32_t y = 0; y < height; y++) {
-        raw_data.push_back(0);  // Filter: None
-        for (uint32_t x = 0; x < width; x++) {
-            size_t idx = (y * width + x) * 4;
-            raw_data.push_back(rgba[idx]);
-            raw_data.push_back(rgba[idx + 1]);
-            raw_data.push_back(rgba[idx + 2]);
-            raw_data.push_back(rgba[idx + 3]);
-        }
-    }
-
-    // Compress with zlib (store mode)
-    std::vector<uint8_t> compressed;
-    compressed.push_back(0x78);
-    compressed.push_back(0x01);
-
-    size_t pos = 0;
-    while (pos < raw_data.size()) {
-        size_t block_size = std::min(size_t(65535), raw_data.size() - pos);
-        bool is_final = (pos + block_size >= raw_data.size());
-
-        compressed.push_back(is_final ? 0x01 : 0x00);
-        uint16_t len = static_cast<uint16_t>(block_size);
-        uint16_t nlen = ~len;
-        compressed.push_back(len & 0xFF);
-        compressed.push_back((len >> 8) & 0xFF);
-        compressed.push_back(nlen & 0xFF);
-        compressed.push_back((nlen >> 8) & 0xFF);
-        compressed.insert(compressed.end(),
-                         raw_data.begin() + pos,
-                         raw_data.begin() + pos + block_size);
-        pos += block_size;
-    }
-
-    uint32_t adler = adler32(raw_data.data(), raw_data.size());
-    compressed.push_back((adler >> 24) & 0xFF);
-    compressed.push_back((adler >> 16) & 0xFF);
-    compressed.push_back((adler >> 8) & 0xFF);
-    compressed.push_back(adler & 0xFF);
-
-    write_chunk("IDAT", compressed.data(), compressed.size());
-    write_chunk("IEND", nullptr, 0);
-
-    return out.good();
 }
 
 // Simple GIF writer with LZW compression
@@ -429,7 +298,9 @@ private:
             while (pos < output.size()) {
                 size_t chunk = std::min(size_t(255), output.size() - pos);
                 out_.put(static_cast<char>(chunk));
-                out_.write(reinterpret_cast<const char*>(output.data() + pos), chunk);
+                const char* ptr = reinterpret_cast<const char*>(
+                    output.data() + pos);
+                out_.write(ptr, chunk);
                 pos += chunk;
             }
             output.clear();
@@ -514,7 +385,8 @@ static int cmd_export(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: shp-tool export <file.shp> -p <palette> [--frames|--sheet] [-o output]\n";
+            std::cerr << "Usage: shp-tool export <file.shp> -p <pal> "
+                      << "[--frames|--sheet] [-o out]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -607,7 +479,8 @@ static int cmd_export(int argc, char* argv[]) {
         shp_result = wwd::ShpReader::open(file_path);
     }
     if (!shp_result) {
-        std::cerr << "shp-tool: error: " << shp_result.error().message() << "\n";
+        std::cerr << "shp-tool: error: "
+                  << shp_result.error().message() << "\n";
         return 2;
     }
 
@@ -617,7 +490,8 @@ static int cmd_export(int argc, char* argv[]) {
     // Open palette
     auto pal_result = wwd::PalReader::open(palette_path);
     if (!pal_result) {
-        std::cerr << "shp-tool: error: " << pal_result.error().message() << "\n";
+        std::cerr << "shp-tool: error: "
+                  << pal_result.error().message() << "\n";
         return 2;
     }
 
@@ -626,15 +500,18 @@ static int cmd_export(int argc, char* argv[]) {
     // Decode all frames
     auto frames_result = reader.decode_all_frames();
     if (!frames_result) {
-        std::cerr << "shp-tool: error: " << frames_result.error().message() << "\n";
+        std::cerr << "shp-tool: error: "
+                  << frames_result.error().message() << "\n";
         return 2;
     }
 
     const auto& frames = *frames_result;
 
     if (verbose) {
-        std::cerr << "Decoded " << frames.size() << " frames from " << file_path << "\n";
-        std::cerr << "Frame size: " << info.max_width << "x" << info.max_height << "\n";
+        std::cerr << "Decoded " << frames.size() << " frames from "
+                  << file_path << "\n";
+        std::cerr << "Frame size: " << info.max_width << "x"
+                  << info.max_height << "\n";
     }
 
     // Default output path
@@ -668,8 +545,9 @@ static int cmd_export(int argc, char* argv[]) {
 
         if (final_path == "-") {
             std::ios_base::sync_with_stdio(false);
-            GifWriter gif(std::cout, static_cast<uint16_t>(info.max_width),
-                          static_cast<uint16_t>(info.max_height), pal_colors, true);
+            uint16_t gw = static_cast<uint16_t>(info.max_width);
+            uint16_t gh = static_cast<uint16_t>(info.max_height);
+            GifWriter gif(std::cout, gw, gh, pal_colors, true);
 
             for (const auto& frame_data : frames) {
                 gif.write_frame(frame_data, delay_cs, transparent, 0);
@@ -678,12 +556,14 @@ static int cmd_export(int argc, char* argv[]) {
         } else {
             std::ofstream out(final_path, std::ios::binary);
             if (!out) {
-                std::cerr << "shp-tool: error: cannot open: " << final_path << "\n";
+                std::cerr << "shp-tool: error: cannot open: "
+                          << final_path << "\n";
                 return 3;
             }
 
-            GifWriter gif(out, static_cast<uint16_t>(info.max_width),
-                          static_cast<uint16_t>(info.max_height), pal_colors, true);
+            uint16_t gw = static_cast<uint16_t>(info.max_width);
+            uint16_t gh = static_cast<uint16_t>(info.max_height);
+            GifWriter gif(out, gw, gh, pal_colors, true);
 
             for (const auto& frame_data : frames) {
                 gif.write_frame(frame_data, delay_cs, transparent, 0);
@@ -691,20 +571,23 @@ static int cmd_export(int argc, char* argv[]) {
             gif.finish();
 
             if (!out.good()) {
-                std::cerr << "shp-tool: error: failed to write: " << final_path << "\n";
+                std::cerr << "shp-tool: error: failed to write: "
+                          << final_path << "\n";
                 return 3;
             }
         }
 
         if (verbose) {
-            std::cerr << "Wrote " << final_path << " (" << frames.size() << " frames, "
+            std::cerr << "Wrote " << final_path << " (" << frames.size()
+                      << " frames, "
                       << fps << " fps)\n";
         }
 
         return 0;
     } else if (as_sheet) {
         // Single sprite sheet - horizontal layout
-        uint32_t sheet_width = info.max_width * static_cast<uint32_t>(frames.size());
+        uint32_t nf = static_cast<uint32_t>(frames.size());
+        uint32_t sheet_width = info.max_width * nf;
         uint32_t sheet_height = info.max_height;
 
         std::vector<uint8_t> rgba(sheet_width * sheet_height * 4, 0);
@@ -724,7 +607,8 @@ static int cmd_export(int argc, char* argv[]) {
                     rgba[dst_idx] = color.r;
                     rgba[dst_idx + 1] = color.g;
                     rgba[dst_idx + 2] = color.b;
-                    rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;  // Index 0 = transparent
+                    // Index 0 = transparent
+                    rgba[dst_idx + 3] = (pal_idx == 0) ? 0 : 255;
                 }
             }
         }
@@ -742,18 +626,24 @@ static int cmd_export(int argc, char* argv[]) {
 
         if (final_path == "-") {
             std::ios_base::sync_with_stdio(false);
-            if (!write_png_rgba(std::cout, rgba.data(), sheet_width, sheet_height)) {
+            bool ok = wwd::write_png_rgba(std::cout, rgba.data(),
+                                          sheet_width, sheet_height);
+            if (!ok) {
                 std::cerr << "shp-tool: error: failed to write to stdout\n";
                 return 3;
             }
         } else {
             std::ofstream out(final_path, std::ios::binary);
             if (!out) {
-                std::cerr << "shp-tool: error: cannot open: " << final_path << "\n";
+                std::cerr << "shp-tool: error: cannot open: "
+                          << final_path << "\n";
                 return 3;
             }
-            if (!write_png_rgba(out, rgba.data(), sheet_width, sheet_height)) {
-                std::cerr << "shp-tool: error: failed to write: " << final_path << "\n";
+            bool ok = wwd::write_png_rgba(out, rgba.data(),
+                                          sheet_width, sheet_height);
+            if (!ok) {
+                std::cerr << "shp-tool: error: failed to write: "
+                          << final_path << "\n";
                 return 3;
             }
         }
@@ -764,7 +654,8 @@ static int cmd_export(int argc, char* argv[]) {
         }
     } else {
         // Individual frames
-        int digits = std::max(3, static_cast<int>(std::ceil(std::log10(frames.size() + 1))));
+        double log_val = std::log10(frames.size() + 1);
+        int digits = std::max(3, static_cast<int>(std::ceil(log_val)));
 
         for (size_t f = 0; f < frames.size(); ++f) {
             const auto& frame_data = frames[f];
@@ -792,19 +683,22 @@ static int cmd_export(int argc, char* argv[]) {
             std::string final_path = fname.str();
 
             if (fs::exists(final_path) && !force) {
-                std::cerr << "shp-tool: error: output file exists: " << final_path
-                          << " (use --force to overwrite)\n";
+                std::cerr << "shp-tool: error: output file exists: "
+                          << final_path << " (use --force)\n";
                 return 1;
             }
 
             std::ofstream out(final_path, std::ios::binary);
             if (!out) {
-                std::cerr << "shp-tool: error: cannot open: " << final_path << "\n";
+                std::cerr << "shp-tool: error: cannot open: "
+                          << final_path << "\n";
                 return 3;
             }
-            if (!write_png_rgba(out, rgba.data(),
-                               info.max_width, info.max_height)) {
-                std::cerr << "shp-tool: error: failed to write: " << final_path << "\n";
+            bool ok = wwd::write_png_rgba(out, rgba.data(),
+                                          info.max_width, info.max_height);
+            if (!ok) {
+                std::cerr << "shp-tool: error: failed to write: "
+                          << final_path << "\n";
                 return 3;
             }
 

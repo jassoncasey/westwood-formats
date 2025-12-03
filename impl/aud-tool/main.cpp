@@ -22,6 +22,7 @@ static void print_usage(std::ostream& out = std::cout) {
         << "    -h, --help      Show help message\n"
         << "    -V, --version   Show version\n"
         << "    -v, --verbose   Verbose output\n"
+        << "    -q, --quiet     Suppress non-essential output\n"
         << "    -o, --output    Output file path\n"
         << "    -f, --force     Overwrite existing files\n"
         << "    --json          Output info in JSON format\n";
@@ -113,15 +114,18 @@ static int cmd_info(int argc, char* argv[]) {
     if (json_output) {
         std::cout << "{\n";
         std::cout << "  \"format\": \"Westwood AUD\",\n";
-        std::cout << "  \"codec\": \"" << codec_name_json(info.codec) << "\",\n";
+        const char* cname = codec_name_json(info.codec);
+        std::cout << "  \"codec\": \"" << cname << "\",\n";
         std::cout << "  \"sample_rate\": " << info.sample_rate << ",\n";
-        std::cout << "  \"channels\": " << static_cast<int>(info.channels) << ",\n";
+        int ch = static_cast<int>(info.channels);
+        std::cout << "  \"channels\": " << ch << ",\n";
         std::cout << "  \"bits\": " << static_cast<int>(info.bits) << ",\n";
         std::cout << "  \"samples\": " << reader.sample_count() << ",\n";
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "  \"duration\": " << reader.duration() << ",\n";
         std::cout << "  \"compressed_size\": " << info.compressed_size << ",\n";
-        std::cout << "  \"uncompressed_size\": " << info.uncompressed_size << "\n";
+        std::cout << "  \"uncompressed_size\": " << info.uncompressed_size
+                  << "\n";
         std::cout << "}\n";
     } else {
         std::cout << "Format:       Westwood AUD\n";
@@ -133,22 +137,28 @@ static int cmd_info(int argc, char* argv[]) {
         }
         std::cout << "\n";
         std::cout << "Sample rate:  " << info.sample_rate << " Hz\n";
-        std::cout << "Channels:     " << (info.channels == 1 ? "mono" : "stereo") << "\n";
+        const char* ch_str = (info.channels == 1 ? "mono" : "stereo");
+        std::cout << "Channels:     " << ch_str << "\n";
         std::cout << "Output bits:  16-bit signed\n";
-        std::cout << "Samples:      " << format_size(reader.sample_count()) << "\n";
+        std::cout << "Samples:      " << format_size(reader.sample_count())
+                  << "\n";
         std::cout << std::fixed << std::setprecision(2);
         std::cout << "Duration:     " << reader.duration() << " seconds\n";
-        std::cout << "Compressed:   " << format_size(info.compressed_size) << " bytes\n";
-        std::cout << "Uncompressed: " << format_size(info.uncompressed_size) << " bytes\n";
+        std::cout << "Compressed:   " << format_size(info.compressed_size)
+                  << " bytes\n";
+        std::cout << "Uncompressed: " << format_size(info.uncompressed_size)
+                  << " bytes\n";
         if (info.compressed_size > 0) {
             float ratio = static_cast<float>(info.uncompressed_size) /
                          static_cast<float>(info.compressed_size);
-            std::cout << "Ratio:        " << std::setprecision(1) << ratio << ":1\n";
+            std::cout << "Ratio:        " << std::setprecision(1)
+                      << ratio << ":1\n";
         }
         if (verbose) {
             std::cout << "\nDetailed info:\n";
             std::cout << "  Header size:    12 bytes\n";
-            std::cout << "  File size:      " << format_size(info.file_size) << " bytes\n";
+            std::cout << "  File size:      " << format_size(info.file_size)
+                      << " bytes\n";
             if (file_path != "-") {
                 std::cout << "  File:           " << file_path << "\n";
             }
@@ -207,7 +217,8 @@ static int cmd_export(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: aud-tool export <file.aud> [-o output.wav] [-f]\n";
+            std::cerr << "Usage: aud-tool export <file.aud> "
+                      << "[-o output.wav] [-f]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -286,13 +297,15 @@ static int cmd_export(int argc, char* argv[]) {
         std::cerr << "Decoding " << file_path << "...\n";
         std::cerr << "  Codec: " << codec_name(info.codec) << "\n";
         std::cerr << "  Sample rate: " << info.sample_rate << " Hz\n";
-        std::cerr << "  Channels: " << (info.channels == 1 ? "mono" : "stereo") << "\n";
+        const char* ch_name = (info.channels == 1 ? "mono" : "stereo");
+        std::cerr << "  Channels: " << ch_name << "\n";
     }
 
     // Decode audio
     auto decode_result = reader.decode();
     if (!decode_result) {
-        std::cerr << "aud-tool: error: " << decode_result.error().message() << "\n";
+        std::cerr << "aud-tool: error: "
+                  << decode_result.error().message() << "\n";
         return 2;
     }
 
@@ -327,10 +340,12 @@ static int cmd_export(int argc, char* argv[]) {
         std::cout.write(reinterpret_cast<const char*>(&bits_per_sample), 2);
         std::cout.write("data", 4);
         std::cout.write(reinterpret_cast<const char*>(&data_size), 4);
-        std::cout.write(reinterpret_cast<const char*>(samples.data()), data_size);
+        const char* ptr = reinterpret_cast<const char*>(samples.data());
+        std::cout.write(ptr, data_size);
     } else {
         if (!write_wav(output_path, samples, info.sample_rate, info.channels)) {
-            std::cerr << "aud-tool: error: failed to write: " << output_path << "\n";
+            std::cerr << "aud-tool: error: failed to write: "
+                      << output_path << "\n";
             return 3;  // I/O error
         }
 

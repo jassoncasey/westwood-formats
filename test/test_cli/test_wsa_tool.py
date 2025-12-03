@@ -61,7 +61,9 @@ class TestWsaToolInfo:
 class TestWsaToolExportGif:
     """Test wsa-tool GIF export."""
 
-    def test_export_gif(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_export_gif(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test exporting as animated GIF."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
@@ -73,18 +75,24 @@ class TestWsaToolExportGif:
         assert out_file.exists()
         assert out_file.read_bytes()[:6] == b"GIF89a"
 
-    def test_export_gif_fps(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_export_gif_fps(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test --fps option."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
         out_file = temp_dir / "animation.gif"
-        result = run(wsa_tool, "export", "--fps", "10", "-p", testdata_pal_files[0],
-                    testdata_wsa_files[0], "-o", str(out_file))
+        result = run(
+            wsa_tool, "export", "--fps", "10", "-p",
+            testdata_pal_files[0], testdata_wsa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_gif_loop(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_export_gif_loop(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test --loop option."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
@@ -95,13 +103,17 @@ class TestWsaToolExportGif:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_gif_no_loop(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_export_gif_no_loop(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test --no-loop option."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
         out_file = temp_dir / "animation.gif"
-        result = run(wsa_tool, "export", "--no-loop", "-p", testdata_pal_files[0],
-                    testdata_wsa_files[0], "-o", str(out_file))
+        result = run(
+            wsa_tool, "export", "--no-loop", "-p", testdata_pal_files[0],
+            testdata_wsa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
@@ -110,12 +122,16 @@ class TestWsaToolExportGif:
 class TestWsaToolExportFrames:
     """Test wsa-tool frame export."""
 
-    def test_export_frames(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_export_frames(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test --frames option."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
-        result = run(wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
-                    testdata_wsa_files[0], "-o", str(temp_dir / "frame"))
+        result = run(
+            wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
+            testdata_wsa_files[0], "-o", str(temp_dir / "frame")
+        )
         if result.returncode != 0:
             pytest.skip("Frame export not implemented")
         png_files = list(temp_dir.glob("frame_*.png"))
@@ -125,7 +141,9 @@ class TestWsaToolExportFrames:
 class TestWsaToolPalette:
     """Test palette handling."""
 
-    def test_external_palette(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_external_palette(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test using external palette."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
@@ -136,13 +154,17 @@ class TestWsaToolPalette:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_embedded_palette(self, wsa_tool, testdata_wsa_files, run, temp_dir):
+    def test_embedded_palette(
+        self, wsa_tool, testdata_wsa_files, run, temp_dir
+    ):
         """Test using embedded palette."""
         if not testdata_wsa_files:
             pytest.skip("No WSA files in testdata")
         # WSA may have embedded palette
         out_file = temp_dir / "animation.gif"
-        result = run(wsa_tool, "export", testdata_wsa_files[0], "-o", str(out_file))
+        result = run(
+            wsa_tool, "export", testdata_wsa_files[0], "-o", str(out_file)
+        )
         # May succeed if WSA has embedded palette, or fail requesting external
         # Either is valid behavior
 

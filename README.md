@@ -1,137 +1,300 @@
-# C&C Red Alert Archive Tools
+# Westwood Studios Format Tools
 
-Tools for reading Westwood Studios MIX archive files from Command & Conquer games.
+A C++ library and CLI toolset for reading and exporting Westwood Studios
+game formats from the Command & Conquer series (1995-2003).
 
-## Project Overview
+## Prerequisites
 
-This project provides `mix-tool`, a CLI utility, and `libmix`, a C/C++ library for
-parsing MIX archive files used in Command & Conquer: Red Alert and related games.
+**Required:**
+- CMake 3.20+
+- C++23 compiler:
+  - Clang 16+ (recommended)
+  - GCC 13+
+  - MSVC 2022+
+- Python 3.10+ (for tests)
 
-**Status:** Phase 1 complete (TD format). Phase 2 (encrypted RA format) in progress.
+**Optional:**
+- ffmpeg (for VQA to MP4 export)
 
-## Quick Start
+### macOS
 
 ```bash
-# Setup test data (downloads from Internet Archive)
+brew install cmake python3
+# ffmpeg optional: brew install ffmpeg
+```
+
+### Linux (Debian/Ubuntu)
+
+```bash
+sudo apt install cmake g++-13 python3 python3-pip
+# ffmpeg optional: sudo apt install ffmpeg
+```
+
+### Windows
+
+Install Visual Studio 2022 with C++ workload, CMake, and Python from python.org.
+
+## Building
+
+```bash
+cd impl
+cmake -B build
+cmake --build build
+
+# Or with specific build type
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+**Build options:**
+```bash
+cmake -B build \
+  -DWWD_BUILD_STATIC=ON \   # Build static library (default)
+  -DWWD_BUILD_SHARED=OFF \  # Build shared library
+  -DWWD_BUILD_CLI=ON \      # Build CLI tools (default)
+  -DWWD_BUILD_TESTS=OFF     # Build C++ tests
+```
+
+**Outputs:**
+- `build/libwestwood.a` - Static library
+- `build/*-tool` - CLI executables (11 tools)
+
+## Running
+
+```bash
+cd impl/build
+
+# Show help
+./mix-tool --help
+./vqa-tool --help
+
+# List contents of a MIX archive
+./mix-tool list ../../testdata/mix/cd1_setup_aud.mix
+
+# Get video info
+./vqa-tool info ../../testdata/vqa/intro.vqa
+
+# Export audio to WAV
+./aud-tool export sound.aud -o sound.wav
+
+# Export video to MP4 (requires ffmpeg)
+./vqa-tool export movie.vqa -o movie.mp4
+```
+
+## Testing
+
+### Setup Test Data
+
+Test assets are extracted from Red Alert CD ISOs (freeware release by EA).
+Not stored in git due to size.
+
+```bash
 ./scripts/setup_testdata.sh
-
-# Build
-cd impl && cmake -B build && cmake --build build
-
-# Run
-./build/mix-tool list ../testdata/mix/cd1_setup_aud.mix
-
-# Test
-cd ../test && ./run_tests.sh
-```
-
-## Project Structure
-
-```
-cnc_redalert/
-├── README.md           # This file - project overview
-├── mix-tool.md         # Tool specification, API docs, build instructions
-├── xcc.md              # MIX file format specification (reverse-engineered)
-├── impl/               # C++ implementation
-│   ├── libmix/         #   Core library (C++ with C API for FFI)
-│   └── mix-tool/       #   CLI application
-├── scripts/
-│   └── setup_testdata.sh   # Download and extract test assets
-├── test/               # Python test suite
-│   ├── run_tests.sh    #   Test runner
-│   └── test_mix.py     #   Unit tests (CLI + C API via ctypes)
-├── testdata/           # Test assets (not in git, see scripts/)
-│   ├── mix/            #   MIX archive files
-│   ├── vqa/            #   VQA video files
-│   ├── ard/            #   Menu graphics (BMP) and audio (WAV)
-│   └── ico/            #   Windows icons
-└── reference/
-    └── xcc/            # XCC Utilities source (reference implementation)
-```
-
-## Documentation Index
-
-| File | Purpose |
-|------|---------|
-| [mix-tool.md](mix-tool.md) | CLI usage, library API, build system, test data catalog |
-| [xcc.md](xcc.md) | Archive formats: MIX (TD, RA, TS), BIG containers |
-| [westwood-formats.md](westwood-formats.md) | Media formats: VQA, AUD, SHP, PAL, WSA, TMP, FNT |
-| [test/test.md](test/test.md) | Test strategy and coverage |
-
-## Key Concepts
-
-### MIX Format Variants
-
-| Format | Games | Encryption | Notes |
-|--------|-------|------------|-------|
-| TD | Tiberian Dawn | None | Simple header + index |
-| RA | Red Alert | RSA+Blowfish | Encrypted index |
-| TS | Tiberian Sun, RA2 | None | 4-byte aligned |
-
-### Filename Hashing
-
-MIX files store entries by 32-bit hash, not filename. Two algorithms exist:
-- **TD/RA:** Rotate-add (ROL 1 + add each char)
-- **TS+:** CRC32 with null-padding to 4-byte boundary
-
-See `xcc.md` for algorithm details and test vectors.
-
-## Implementation Status
-
-- [x] TD format parsing (unencrypted)
-- [x] Table/tree/JSON output
-- [x] Filename resolution via hash matching
-- [x] C API for FFI (Python, Rust, etc.)
-- [ ] RA format decryption (RSA + Blowfish)
-- [ ] Recursive listing of nested MIX files
-- [ ] TS/RA2 format support
-
-## Test Data
-
-Test assets are extracted from Red Alert CD ISOs (freeware release by EA, 2008).
-Not stored in git due to size (~1 GB). Run setup script to download:
-
-```bash
-./scripts/setup_testdata.sh          # Extract then delete ISOs
-./scripts/setup_testdata.sh --keep-iso  # Keep ISOs in downloads/
 ```
 
 Source: [Internet Archive](https://archive.org/details/command-conquer-red-alert_202309)
 
-## Architecture Notes
+### Run Tests
 
-### Library Design
+```bash
+cd test
+MIX_TOOL=../impl/build/mix-tool python3 -m pytest
 
-- **C++ core** with modern features (C++23, std::expected, std::span)
-- **Pure C API** (`mix/mix_c.h`) for FFI compatibility
-- **Pimpl pattern** hides implementation details
-- **Cross-platform** build via CMake (macOS, Linux, Windows)
+# Verbose output
+MIX_TOOL=../impl/build/mix-tool python3 -m pytest -v
+
+# Run specific test file
+MIX_TOOL=../impl/build/mix-tool python3 -m pytest test_cli/test_aud_tool.py
+```
+
+**Test coverage:** 439 tests across CLI, library, output formats, and integration.
+
+## Using the Library
+
+### Linking
+
+**CMake:**
+```cmake
+add_subdirectory(path/to/impl)
+target_link_libraries(myapp PRIVATE westwood::static)
+```
+
+**Manual:**
+```bash
+g++ -std=c++23 myapp.cpp -I impl/libwestwood/include -L impl/build -lwestwood
+```
+
+### API Example
+
+```cpp
+#include <westwood/vqa.h>
+#include <westwood/aud.h>
+#include <westwood/mix.h>
+#include <iostream>
+
+int main() {
+    // Open a VQA video file
+    auto result = wwd::VqaReader::open("intro.vqa");
+    if (!result) {
+        std::cerr << "Error: " << result.error().message() << "\n";
+        return 1;
+    }
+
+    auto& reader = *result.value();
+    const auto& info = reader.info();
+
+    std::cout << "Video: " << info.header.width << "x"
+              << info.header.height << "\n";
+    std::cout << "Frames: " << info.header.frame_count << "\n";
+    std::cout << "Duration: " << reader.duration() << "s\n";
+
+    // Decode all video frames to RGB
+    auto frames = reader.decode_video();
+    if (frames) {
+        for (const auto& frame : *frames) {
+            // frame.rgb is std::vector<uint8_t> with RGB data
+            // frame.width, frame.height are dimensions
+        }
+    }
+
+    // Decode audio to PCM samples
+    auto audio = reader.decode_audio();
+    if (audio) {
+        // *audio is std::vector<int16_t> with PCM samples
+    }
+
+    return 0;
+}
+```
+
+### Reader Classes
+
+| Class | Header | Description |
+|-------|--------|-------------|
+| `wwd::MixReader` | mix.h | MIX archive parsing and extraction |
+| `wwd::VqaReader` | vqa.h | VQA video decoding |
+| `wwd::AudReader` | aud.h | AUD audio decoding |
+| `wwd::ShpReader` | shp.h | SHP sprite decoding |
+| `wwd::WsaReader` | wsa.h | WSA animation decoding |
+| `wwd::TmpReader` | tmp.h | TMP terrain tile decoding |
+| `wwd::FntReader` | fnt.h | FNT font decoding |
+| `wwd::CpsReader` | cps.h | CPS image decoding |
+| `wwd::PalReader` | pal.h | PAL palette parsing |
 
 ### Error Handling
 
-- C++ API uses `std::expected<T, Error>` for fallible operations
-- C API uses error codes with `mix_error_string()` for messages
-- CLI uses exit codes: 0=success, 1=runtime error, 2=usage error
+All reader methods return `wwd::Result<T>` (alias for `std::expected<T, wwd::Error>`):
 
-### File Organization in impl/
+```cpp
+auto result = wwd::ShpReader::open("sprite.shp");
 
+// Check for error
+if (!result) {
+    wwd::Error err = result.error();
+    std::cerr << err.message() << "\n";  // Human-readable message
+    std::cerr << "Code: " << static_cast<int>(err.code()) << "\n";
+    return 1;
+}
+
+// Access value
+auto& reader = *result.value();
 ```
-impl/
-├── CMakeLists.txt          # Build configuration
-├── libmix/
-│   ├── include/mix/
-│   │   ├── export.h        # Symbol visibility macros
-│   │   ├── types.h         # Constants (magic numbers, limits)
-│   │   ├── error.h         # Error codes and Error class
-│   │   ├── mix.h           # C++ API (MixReader, Entry, etc.)
-│   │   └── mix_c.h         # C API (opaque handles, C types)
-│   └── src/
-│       ├── error.cpp       # Error implementation
-│       ├── hash.cpp        # TD and TS hash algorithms
-│       ├── mix_reader.cpp  # Format parsing, file reading
-│       └── mix_c.cpp       # C API wrapper
-└── mix-tool/
-    ├── main.cpp            # CLI entry point, argument parsing
-    ├── cmd_list.cpp        # 'list' command implementation
-    └── format.cpp          # Output formatting (table, tree, JSON)
+
+**Error codes:**
+- `wwd::ErrorCode::InvalidFormat` - File format not recognized
+- `wwd::ErrorCode::IoError` - File read/write failure
+- `wwd::ErrorCode::OutOfBounds` - Index out of range
+- `wwd::ErrorCode::DecompressionFailed` - LCW/LZW decompression error
+
+## Supported Formats
+
+| Format | Tool | Description | Export |
+|--------|------|-------------|--------|
+| MIX | mix-tool | Archive containers (TD, RA, TS, RA2, RG, BIG) | extract |
+| VQA | vqa-tool | Full-motion video (v1, v2, v3, HiColor) | MP4, PNG+WAV |
+| AUD | aud-tool | Compressed audio (IMA/Westwood ADPCM) | WAV |
+| SHP | shp-tool | Sprites (TD/RA and TS/RA2 variants) | PNG |
+| PAL | pal-tool | Color palettes (6-bit and 8-bit) | PNG swatch |
+| WSA | wsa-tool | Sprite animations | GIF, PNG |
+| TMP | tmp-tool | Terrain tiles (orthographic + isometric) | PNG |
+| FNT | fnt-tool | Bitmap fonts (v2-v4, BitFont, Unicode) | PNG |
+| CPS | cps-tool | Compressed pictures (320x200) | PNG |
+| LCW | lcw-tool | Compression algorithm (Format80/40) | raw |
+| Blowfish | blowfish-tool | Encryption/key derivation | raw |
+
+## CLI Reference
+
+All tools follow Unix conventions:
+
+```bash
+# Common options
+<tool> --help          # Show usage
+<tool> --version       # Show version
+<tool> -v, --verbose   # Verbose output
+<tool> -q, --quiet     # Suppress non-essential output
+<tool> -o <path>       # Output path
+<tool> -f, --force     # Overwrite existing files
+
+# Stdin/stdout support (use - for path)
+cat file.aud | aud-tool export - -o - > output.wav
+mix-tool list - < archive.mix
+
+# Info commands output JSON
+vqa-tool info --json movie.vqa | jq '.frames'
 ```
+
+**Exit codes:** 0=success, 1=invalid args, 2=format error, 3=io error
+
+### Examples
+
+```bash
+# Extract all files from a MIX archive
+mix-tool extract redalert.mix -o extracted/
+
+# Convert VQA video to MP4 (requires ffmpeg)
+vqa-tool export intro.vqa -o intro.mp4
+
+# Export sprite sheet with palette
+shp-tool export units.shp -p temperat.pal -o units.png
+
+# Export animation as GIF
+wsa-tool export menu.wsa -p redalert.pal -o menu.gif
+
+# Export individual frames
+shp-tool export tank.shp -p pal.pal --frames -o frames/tank
+```
+
+## Platforms
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| macOS (arm64) | Tested | Primary development |
+| macOS (x86_64) | Should work | Not regularly tested |
+| Linux (x86_64) | Should work | Requires C++23 compiler |
+| Windows | Should work | MSVC 2022+ or Clang |
+
+## Documentation
+
+| File | Description |
+|------|-------------|
+| [tool-specs.md](tool-specs.md) | CLI interface specification |
+| [westwood-formats.md](westwood-formats.md) | Media format documentation (VQA, AUD, SHP, etc.) |
+| [xcc.md](xcc.md) | Archive format details (MIX, BIG) |
+
+## TODO
+
+### Infrastructure
+- [ ] CI/CD pipeline (GitHub Actions)
+- [ ] Man page generation
+- [ ] Distribution packages (Homebrew, deb, rpm)
+- [ ] Valgrind/ASan memory testing
+
+### Feature Expansion
+- [ ] Write support (create MIX archives)
+- [ ] Encoding support (PNG to SHP, WAV to AUD)
+- [ ] GUI asset browser
+- [ ] OpenRA integration
+
+## License
+
+Apache License 2.0

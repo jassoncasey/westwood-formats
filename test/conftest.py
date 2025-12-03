@@ -127,63 +127,78 @@ def testdata_mix_files() -> list[Path]:
 @pytest.fixture
 def testdata_vqa_files() -> list[Path]:
     """List of VQA files in testdata."""
-    vqa_files = list(TESTDATA_DIR.glob("**/*.VQA")) + list(TESTDATA_DIR.glob("**/*.vqa"))
+    vqa_files = list(TESTDATA_DIR.glob("**/*.VQA"))
+    vqa_files += list(TESTDATA_DIR.glob("**/*.vqa"))
     return vqa_files
 
 
 @pytest.fixture
 def testdata_aud_files() -> list[Path]:
     """List of AUD files in testdata (extracted or found)."""
-    aud_files = list(EXTRACTED_DIR.glob("**/*.aud")) + list(EXTRACTED_DIR.glob("**/*.AUD"))
-    aud_files += list(TESTDATA_DIR.glob("**/*.aud")) + list(TESTDATA_DIR.glob("**/*.AUD"))
+    aud_files = list(EXTRACTED_DIR.glob("**/*.aud"))
+    aud_files += list(EXTRACTED_DIR.glob("**/*.AUD"))
+    aud_files += list(TESTDATA_DIR.glob("**/*.aud"))
+    aud_files += list(TESTDATA_DIR.glob("**/*.AUD"))
     return aud_files
 
 
 @pytest.fixture
 def testdata_shp_files() -> list[Path]:
     """List of SHP files in testdata (extracted or found)."""
-    shp_files = list(EXTRACTED_DIR.glob("**/*.shp")) + list(EXTRACTED_DIR.glob("**/*.SHP"))
-    shp_files += list(TESTDATA_DIR.glob("**/*.shp")) + list(TESTDATA_DIR.glob("**/*.SHP"))
+    shp_files = list(EXTRACTED_DIR.glob("**/*.shp"))
+    shp_files += list(EXTRACTED_DIR.glob("**/*.SHP"))
+    shp_files += list(TESTDATA_DIR.glob("**/*.shp"))
+    shp_files += list(TESTDATA_DIR.glob("**/*.SHP"))
     return shp_files
 
 
 @pytest.fixture
 def testdata_pal_files() -> list[Path]:
     """List of PAL files in testdata (extracted or found)."""
-    pal_files = list(EXTRACTED_DIR.glob("**/*.pal")) + list(EXTRACTED_DIR.glob("**/*.PAL"))
-    pal_files += list(TESTDATA_DIR.glob("**/*.pal")) + list(TESTDATA_DIR.glob("**/*.PAL"))
+    pal_files = list(EXTRACTED_DIR.glob("**/*.pal"))
+    pal_files += list(EXTRACTED_DIR.glob("**/*.PAL"))
+    pal_files += list(TESTDATA_DIR.glob("**/*.pal"))
+    pal_files += list(TESTDATA_DIR.glob("**/*.PAL"))
     return pal_files
 
 
 @pytest.fixture
 def testdata_wsa_files() -> list[Path]:
     """List of WSA files in testdata (extracted or found)."""
-    wsa_files = list(EXTRACTED_DIR.glob("**/*.wsa")) + list(EXTRACTED_DIR.glob("**/*.WSA"))
-    wsa_files += list(TESTDATA_DIR.glob("**/*.wsa")) + list(TESTDATA_DIR.glob("**/*.WSA"))
+    wsa_files = list(EXTRACTED_DIR.glob("**/*.wsa"))
+    wsa_files += list(EXTRACTED_DIR.glob("**/*.WSA"))
+    wsa_files += list(TESTDATA_DIR.glob("**/*.wsa"))
+    wsa_files += list(TESTDATA_DIR.glob("**/*.WSA"))
     return wsa_files
 
 
 @pytest.fixture
 def testdata_tmp_files() -> list[Path]:
     """List of TMP files in testdata (extracted or found)."""
-    tmp_files = list(EXTRACTED_DIR.glob("**/*.tmp")) + list(EXTRACTED_DIR.glob("**/*.TMP"))
-    tmp_files += list(TESTDATA_DIR.glob("**/*.tmp")) + list(TESTDATA_DIR.glob("**/*.TMP"))
+    tmp_files = list(EXTRACTED_DIR.glob("**/*.tmp"))
+    tmp_files += list(EXTRACTED_DIR.glob("**/*.TMP"))
+    tmp_files += list(TESTDATA_DIR.glob("**/*.tmp"))
+    tmp_files += list(TESTDATA_DIR.glob("**/*.TMP"))
     return tmp_files
 
 
 @pytest.fixture
 def testdata_fnt_files() -> list[Path]:
     """List of FNT files in testdata (extracted or found)."""
-    fnt_files = list(EXTRACTED_DIR.glob("**/*.fnt")) + list(EXTRACTED_DIR.glob("**/*.FNT"))
-    fnt_files += list(TESTDATA_DIR.glob("**/*.fnt")) + list(TESTDATA_DIR.glob("**/*.FNT"))
+    fnt_files = list(EXTRACTED_DIR.glob("**/*.fnt"))
+    fnt_files += list(EXTRACTED_DIR.glob("**/*.FNT"))
+    fnt_files += list(TESTDATA_DIR.glob("**/*.fnt"))
+    fnt_files += list(TESTDATA_DIR.glob("**/*.FNT"))
     return fnt_files
 
 
 @pytest.fixture
 def testdata_cps_files() -> list[Path]:
     """List of CPS files in testdata (extracted or found)."""
-    cps_files = list(EXTRACTED_DIR.glob("**/*.cps")) + list(EXTRACTED_DIR.glob("**/*.CPS"))
-    cps_files += list(TESTDATA_DIR.glob("**/*.cps")) + list(TESTDATA_DIR.glob("**/*.CPS"))
+    cps_files = list(EXTRACTED_DIR.glob("**/*.cps"))
+    cps_files += list(EXTRACTED_DIR.glob("**/*.CPS"))
+    cps_files += list(TESTDATA_DIR.glob("**/*.cps"))
+    cps_files += list(TESTDATA_DIR.glob("**/*.CPS"))
     return cps_files
 
 
@@ -231,12 +246,13 @@ class ToolResult:
 
     def assert_success(self):
         """Assert the tool succeeded."""
-        assert self.returncode == 0, f"Tool failed with code {self.returncode}: {self.stderr_text}"
+        msg = f"Tool failed with code {self.returncode}: {self.stderr_text}"
+        assert self.returncode == 0, msg
 
     def assert_exit_code(self, expected: int):
         """Assert specific exit code."""
-        assert self.returncode == expected, \
-            f"Expected exit code {expected}, got {self.returncode}: {self.stderr_text}"
+        msg = f"Expected exit code {expected}, got {self.returncode}"
+        assert self.returncode == expected, msg
 
     def assert_error_contains(self, text: str):
         """Assert stderr contains specific text."""
@@ -401,7 +417,9 @@ def parse_png():
 
 # === Golden File Comparison ===
 
-def compare_with_golden(actual: bytes, golden_path: Path, update: bool = False) -> bool:
+def compare_with_golden(
+    actual: bytes, golden_path: Path, update: bool = False
+) -> bool:
     """
     Compare actual output with golden file.
 

@@ -51,7 +51,8 @@ class TestAudToolInfo:
         """Test info on multiple files."""
         if len(testdata_aud_files) < 2:
             pytest.skip("Need multiple AUD files")
-        result = run(aud_tool, "info", testdata_aud_files[0], testdata_aud_files[1])
+        files = [testdata_aud_files[0], testdata_aud_files[1]]
+        result = run(aud_tool, "info", *files)
         result.assert_success()
 
 
@@ -63,13 +64,16 @@ class TestAudToolExport:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        out_path = str(out_file)
+        result = run(aud_tool, "export", testdata_aud_files[0], "-o", out_path)
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
         assert out_file.read_bytes()[:4] == b"RIFF"
 
-    def test_export_preserves_sample_rate(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_export_preserves_sample_rate(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test export preserves source sample rate."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -85,7 +89,8 @@ class TestAudToolExport:
 
         # Export
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        out_path = str(out_file)
+        result = run(aud_tool, "export", testdata_aud_files[0], "-o", out_path)
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -94,7 +99,9 @@ class TestAudToolExport:
         wav_rate = struct.unpack("<I", wav_data[24:28])[0]
         assert wav_rate == source_rate
 
-    def test_export_default_filename(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_export_default_filename(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test export without -o uses default name."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -125,7 +132,8 @@ class TestAudToolErrors:
         """Test error when output directory doesn't exist."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", "/nonexistent/dir/out.wav")
+        bad_out = "/nonexistent/dir/out.wav"
+        result = run(aud_tool, "export", testdata_aud_files[0], "-o", bad_out)
         result.assert_exit_code(3)
 
     def test_invalid_command(self, aud_tool, run):

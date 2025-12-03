@@ -12,11 +12,14 @@ namespace wwd {
 
 // Font format versions
 enum class FntFormat {
-    V2,            // 1-bit monochrome, 128 chars max (BattleTech, Eye of the Beholder)
-    V3,            // 4-bit grayscale, variable chars (TD, RA, Kyrandia, Lands of Lore)
+    // 1-bit monochrome, 128 chars max (BattleTech, Eye of the Beholder)
+    V2,
+    // 4-bit grayscale, variable chars (TD, RA, Kyrandia, Lands of Lore)
+    V3,
     V4,            // 8-bit grayscale, variable chars (TS, RA2, Lands of Lore 3)
     BitFont,       // 1-bit monochrome, RA2/Nox style (header "FoNt" or "tNoF")
-    UnicodeBitFont // 1-bit monochrome, Unicode (header "fonT", up to 65K glyphs)
+    // 1-bit monochrome, Unicode (header "fonT", up to 65K glyphs)
+    UnicodeBitFont
 };
 
 struct FntGlyphInfo {
@@ -42,7 +45,8 @@ struct FntInfo {
 class FntReader {
 public:
     static Result<std::unique_ptr<FntReader>> open(const std::string& path);
-    static Result<std::unique_ptr<FntReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<FntReader>> open(
+        std::span<const uint8_t> data);
 
     ~FntReader();
 

@@ -43,7 +43,8 @@ struct ShpInfo {
 class ShpReader {
 public:
     static Result<std::unique_ptr<ShpReader>> open(const std::string& path);
-    static Result<std::unique_ptr<ShpReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<ShpReader>> open(
+        std::span<const uint8_t> data);
 
     ~ShpReader();
 
@@ -53,7 +54,7 @@ public:
     // Decode a frame to palette indices (8-bit per pixel)
     // The delta buffer maintains state across frames for XOR delta decoding
     Result<std::vector<uint8_t>> decode_frame(size_t frame_index,
-                                               std::vector<uint8_t>& delta_buffer) const;
+        std::vector<uint8_t>& delta_buffer) const;
 
     // Convenience: decode all frames
     Result<std::vector<std::vector<uint8_t>>> decode_all_frames() const;

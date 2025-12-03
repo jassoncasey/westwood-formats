@@ -36,7 +36,8 @@ struct VqaAudioInfo {
     uint32_t sample_rate;
     uint8_t  channels;
     uint8_t  bits;
-    uint8_t  codec_id;      // 0=SND0 (raw), 1=SND1 (Westwood ADPCM), 2=SND2 (IMA ADPCM)
+    // 0=SND0 (raw), 1=SND1 (Westwood ADPCM), 2=SND2 (IMA ADPCM)
+    uint8_t  codec_id;
     bool     has_audio;
     bool     compressed;    // SND1/SND2 vs SND0
 };
@@ -57,7 +58,8 @@ struct VqaFrame {
 class VqaReader {
 public:
     static Result<std::unique_ptr<VqaReader>> open(const std::string& path);
-    static Result<std::unique_ptr<VqaReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<VqaReader>> open(
+        std::span<const uint8_t> data);
 
     ~VqaReader();
 

@@ -23,7 +23,8 @@ class TestAudHeaderParsing:
         result = run(aud_tool, "info", testdata_aud_files[0])
         result.assert_success()
         # Should show codec info
-        assert "codec" in result.stdout_text.lower() or "Codec" in result.stdout_text
+        stdout_lower = result.stdout_text.lower()
+        assert "codec" in stdout_lower or "Codec" in result.stdout_text
 
     def test_valid_header_codec_63(self, aud_tool, testdata_aud_files, run):
         """Test parsing AUD with IMA ADPCM codec."""
@@ -54,14 +55,18 @@ class TestAudWestwoodAdpcm:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         wav_file = temp_dir / "output.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(wav_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(wav_file)
+        )
         result.assert_success()
         # Verify WAV header
         data = wav_file.read_bytes()
         assert data[:4] == b"RIFF"
         assert data[8:12] == b"WAVE"
 
-    def test_decode_multiple_files(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_decode_multiple_files(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test decoding multiple AUD files."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -92,7 +97,9 @@ class TestAudImaAdpcm:
             pytest.skip("No AUD files in testdata")
         # Export and verify it's mono
         wav_file = temp_dir / "output.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(wav_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(wav_file)
+        )
         result.assert_success()
         # Just verify export works - actual channel count depends on file
 
@@ -160,7 +167,8 @@ class TestAudInfoOutput:
         result = run(aud_tool, "info", testdata_aud_files[0])
         result.assert_success()
         assert len(result.stdout_text) > 0
-        assert "sample" in result.stdout_text.lower() or "rate" in result.stdout_text.lower()
+        stdout_lower = result.stdout_text.lower()
+        assert "sample" in stdout_lower or "rate" in stdout_lower
 
     def test_info_json(self, aud_tool, testdata_aud_files, run):
         """Test JSON info output format."""

@@ -29,7 +29,8 @@ struct AudInfo {
 class AudReader {
 public:
     static Result<std::unique_ptr<AudReader>> open(const std::string& path);
-    static Result<std::unique_ptr<AudReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<AudReader>> open(
+        std::span<const uint8_t> data);
 
     ~AudReader();
 

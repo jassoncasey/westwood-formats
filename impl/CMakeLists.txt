@@ -63,6 +63,7 @@ set(LIBWESTWOOD_SOURCES
     libwestwood/src/pal.cpp
     libwestwood/src/fnt.cpp
     libwestwood/src/cps.cpp
+    libwestwood/src/png.cpp
 )
 
 set(LIBWESTWOOD_HEADERS
@@ -80,6 +81,8 @@ set(LIBWESTWOOD_HEADERS
     libwestwood/include/westwood/pal.h
     libwestwood/include/westwood/fnt.h
     libwestwood/include/westwood/cps.h
+    libwestwood/include/westwood/png.h
+    libwestwood/include/westwood/cli.h
 )
 
 # --------------------------------------------------------------------

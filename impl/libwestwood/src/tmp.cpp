@@ -45,7 +45,7 @@ static constexpr size_t TS_TILE_HEADER_SIZE = 52;
 static TmpFormat detect_format(std::span<const uint8_t> data) {
     // TS/RA2 TMP detection:
     // - First 16 bytes are the file header
-    // - template_width (4), template_height (4), tile_width (4), tile_height (4)
+    // - template_width(4), template_height(4), tile_width(4), tile_height(4)
     // - TS uses 48x24 tiles, RA2 uses 60x30 tiles
     // - After header comes the index (offsets to each tile)
 
@@ -71,7 +71,7 @@ static TmpFormat detect_format(std::span<const uint8_t> data) {
     // TD/RA detection (orthographic 24x24)
     // TD TMP: ID1=0xFFFF + ID2=0x0D1A at offset 0x14 (reads as 0x0D1AFFFF LE)
     // RA TMP: Zero2=0 at offset 0x10, and 0x2C73 at offset 0x1A
-    // The 0x2C73 value appears within the IndexImagesInfo offset field in RA files
+    // 0x2C73 appears in IndexImagesInfo offset field in RA files
 
     if (data.size() >= 24) {
         uint32_t id_field = read_u32(data.data() + 0x14);  // ID1 + ID2
@@ -83,7 +83,8 @@ static TmpFormat detect_format(std::span<const uint8_t> data) {
 
     if (data.size() >= 28) {
         uint32_t zero2 = read_u32(data.data() + 0x10);
-        uint16_t marker = read_u16(data.data() + 0x1A);  // Within IndexImagesInfo
+        // Within IndexImagesInfo
+        uint16_t marker = read_u16(data.data() + 0x1A);
 
         if (zero2 == 0 && marker == 0x2C73) {
             return TmpFormat::RA;
@@ -94,26 +95,48 @@ static TmpFormat detect_format(std::span<const uint8_t> data) {
     return TmpFormat::RA;
 }
 
+// Parse TS tile 52-byte header into TmpTileInfo
+static TmpTileInfo parse_ts_tile_header(
+    const uint8_t* th, uint32_t diamond_size)
+{
+    TmpTileInfo tile{};
+    tile.x_offset = static_cast<int32_t>(read_u32(th + 0));
+    tile.y_offset = static_cast<int32_t>(read_u32(th + 4));
+    tile.extra_offset = read_u32(th + 8);
+    tile.z_offset = read_u32(th + 12);
+    tile.extra_x = static_cast<int32_t>(read_u32(th + 20));
+    tile.extra_y = static_cast<int32_t>(read_u32(th + 24));
+    tile.extra_width = read_u32(th + 28);
+    tile.extra_height = read_u32(th + 32);
+    uint8_t flags = th[36];
+    tile.has_extra = (flags & 0x01) != 0;
+    tile.has_z_data = (flags & 0x02) != 0;
+    tile.has_damaged = (flags & 0x04) != 0;
+    tile.height = th[40];
+    tile.land_type = th[41];
+    tile.slope_type = th[42];
+    tile.size = diamond_size;
+    return tile;
+}
+
+// Validate TS header dimensions
+static Result<void> validate_ts_header(const TmpInfo& info) {
+    if (info.template_width == 0 || info.template_height == 0)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "TS size"));
+    if (info.template_width > 10 || info.template_height > 10)
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "TS large"));
+    return {};
+}
+
 // Parse TS/RA2 isometric TMP format
 static Result<void> parse_tmp_ts(TmpReaderImpl& impl,
                                   std::span<const uint8_t> data,
                                   TmpFormat format) {
-    // TS/RA2 TMP header (16 bytes):
-    // Offset  Size  Description
-    // 0       4     Template width in cells
-    // 4       4     Template height in cells
-    // 8       4     Tile width (48 for TS, 60 for RA2)
-    // 12      4     Tile height (24 for TS, 30 for RA2)
-    // Then: index of offsets (4 bytes each, template_width * template_height entries)
-    // Then: tile data with 52-byte headers followed by pixel data
-
-    if (data.size() < 16) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TS TMP header too small"));
-    }
+    if (data.size() < 16)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "TS TMP"));
 
     const uint8_t* p = data.data();
-
     impl.info.format = format;
     impl.info.template_width = read_u32(p);
     impl.info.template_height = read_u32(p + 4);
@@ -121,120 +144,81 @@ static Result<void> parse_tmp_ts(TmpReaderImpl& impl,
     impl.info.tile_height = static_cast<uint16_t>(read_u32(p + 12));
     impl.info.file_size = static_cast<uint32_t>(data.size());
 
+    auto v = validate_ts_header(impl.info);
+    if (!v) return v;
+
     uint32_t tile_count = impl.info.template_width * impl.info.template_height;
     impl.info.tile_count = static_cast<uint16_t>(tile_count);
-
-    // Validate
-    if (impl.info.template_width == 0 || impl.info.template_height == 0) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TS TMP invalid template size"));
-    }
-
-    if (impl.info.template_width > 10 || impl.info.template_height > 10) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TS TMP template too large"));
-    }
-
-    // Index starts immediately after header
     impl.info.index_start = 16;
     impl.info.index_end = 16 + tile_count * 4;
 
-    if (impl.info.index_end > data.size()) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptIndex, "TS TMP index truncated"));
-    }
+    if (impl.info.index_end > data.size())
+        return std::unexpected(make_error(ErrorCode::CorruptIndex, "TS idx"));
 
-    // Calculate isometric diamond pixel count:
-    // Diamond shape is tile_width x tile_height but only the diamond area has pixels
-    // For a 48x24 tile, the diamond area is: sum of row widths
-    // Row widths: 4, 8, 12, ..., 48, ..., 12, 8, 4 (for 24 rows)
-    // This equals tile_width * tile_height / 2
     uint32_t diamond_size = (impl.info.tile_width * impl.info.tile_height) / 2;
-
     impl.tiles.reserve(tile_count);
     const uint8_t* index = p + impl.info.index_start;
     uint16_t empty_count = 0;
 
     for (uint32_t i = 0; i < tile_count; ++i) {
         uint32_t offset = read_u32(index + i * 4);
-
         TmpTileInfo tile{};
         tile.offset = offset;
         tile.valid = (offset != 0);
 
         if (!tile.valid) {
             empty_count++;
-            impl.tiles.push_back(tile);
-            continue;
-        }
-
-        // Validate tile offset
-        if (offset + TS_TILE_HEADER_SIZE > data.size()) {
+        } else if (offset + TS_TILE_HEADER_SIZE > data.size()) {
             return std::unexpected(
-                make_error(ErrorCode::CorruptIndex, "TS TMP tile header out of bounds"));
+                make_error(ErrorCode::CorruptIndex, "TS tile"));
+        } else {
+            tile = parse_ts_tile_header(p + offset, diamond_size);
+            tile.offset = offset;
+            tile.valid = true;
         }
-
-        // Parse 52-byte tile cell header
-        const uint8_t* th = p + offset;
-        tile.x_offset = static_cast<int32_t>(read_u32(th + 0));
-        tile.y_offset = static_cast<int32_t>(read_u32(th + 4));
-        tile.extra_offset = read_u32(th + 8);   // Relative to tile start
-        tile.z_offset = read_u32(th + 12);      // Relative to tile start
-        // th + 16 = extra z-data offset (unused)
-        tile.extra_x = static_cast<int32_t>(read_u32(th + 20));
-        tile.extra_y = static_cast<int32_t>(read_u32(th + 24));
-        tile.extra_width = read_u32(th + 28);
-        tile.extra_height = read_u32(th + 32);
-
-        uint8_t flags = th[36];
-        tile.has_extra = (flags & 0x01) != 0;
-        tile.has_z_data = (flags & 0x02) != 0;
-        tile.has_damaged = (flags & 0x04) != 0;
-
-        tile.height = th[40];
-        tile.land_type = th[41];
-        tile.slope_type = th[42];
-
-        // Tile image data starts after the 52-byte header
-        tile.size = diamond_size;
-
         impl.tiles.push_back(tile);
     }
 
     impl.info.empty_count = empty_count;
     impl.info.image_start = impl.info.index_end;
-
     return {};
+}
+
+// Validate TD/RA header
+static Result<void> validate_tdra_header(const TmpInfo& info) {
+    if (info.tile_width == 0 || info.tile_height == 0)
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "TMP size"));
+    if (info.tile_count == 0)
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "no tiles"));
+    return {};
+}
+
+// Parse TD/RA tile index
+static uint16_t parse_tdra_tiles(TmpReaderImpl& impl, const uint8_t* index) {
+    uint32_t tile_size = impl.info.tile_width * impl.info.tile_height;
+    impl.tiles.reserve(impl.info.tile_count);
+    uint16_t empty_count = 0;
+
+    for (uint32_t i = 0; i < impl.info.tile_count; ++i) {
+        TmpTileInfo tile{};
+        tile.offset = read_u32(index + i * 4);
+        tile.size = tile_size;
+        tile.valid = (tile.offset != 0);
+        if (!tile.valid) empty_count++;
+        impl.tiles.push_back(tile);
+    }
+    return empty_count;
 }
 
 // Parse TD/RA orthographic TMP format
 static Result<void> parse_tmp_tdra(TmpReaderImpl& impl,
                                     std::span<const uint8_t> data) {
-    // TD/RA TMP header (40 bytes):
-    // Based on ModdingWiki "Command & Conquer Tileset Format"
-    // Offset  Size  Description
-    // 0x00    2     TileWidth - always 24
-    // 0x02    2     TileHeight - always 24
-    // 0x04    2     NrOfTiles - tile count (max 255 usable in maps)
-    // 0x06    2     Zero1 - always 0
-    // 0x08    4     Size - total file size
-    // 0x0C    4     ImgStart - offset of first image data
-    // 0x10    4     Zero2 - always 0
-    // 0x14    2     ID1 - always 0xFFFF
-    // 0x16    2     ID2 - always 0x0D1A (used for TD detection)
-    // 0x18    4     IndexImagesInfo - offset of images info array (byte per image)
-    // 0x1C    4     IndexTilesetImages - offset of tile-to-image index
-    //
-    // Detection: TD has 0x0D1AFFFF at offset 0x14, RA has 0 at offset 0x14
-    // and 0x2C73 at offset 0x1A (within IndexImagesInfo field)
-
-    if (data.size() < 40) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TMP file too small"));
-    }
+    if (data.size() < 40)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "TMP"));
 
     impl.info.format = detect_format(data);
-
     const uint8_t* p = data.data();
 
     impl.info.tile_width = read_u16(p);
@@ -247,48 +231,14 @@ static Result<void> parse_tmp_tdra(TmpReaderImpl& impl,
     impl.info.template_width = 1;
     impl.info.template_height = impl.info.tile_count;
 
-    // Validate
-    if (impl.info.tile_width == 0 || impl.info.tile_height == 0) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TMP invalid tile size"));
-    }
+    auto v = validate_tdra_header(impl.info);
+    if (!v) return v;
 
-    if (impl.info.tile_count == 0) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "TMP has no tiles"));
-    }
-
-    // Read tile index
-    // Index contains offsets for each tile (0 = invalid/empty tile)
     size_t index_size = impl.info.index_end - impl.info.index_start;
+    if (impl.info.index_start + index_size > data.size())
+        return std::unexpected(make_error(ErrorCode::CorruptIndex, "TMP idx"));
 
-    if (impl.info.index_start + index_size > data.size()) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptIndex, "TMP index truncated"));
-    }
-
-    uint32_t tile_size = impl.info.tile_width * impl.info.tile_height;
-    impl.tiles.reserve(impl.info.tile_count);
-
-    const uint8_t* index = p + impl.info.index_start;
-    uint16_t empty_count = 0;
-    for (uint32_t i = 0; i < impl.info.tile_count; ++i) {
-        uint32_t offset = read_u32(index + i * 4);
-
-        TmpTileInfo tile{};
-        tile.offset = offset;
-        tile.size = tile_size;
-        tile.valid = (offset != 0);
-
-        if (!tile.valid) {
-            empty_count++;
-        }
-
-        impl.tiles.push_back(tile);
-    }
-
-    impl.info.empty_count = empty_count;
-
+    impl.info.empty_count = parse_tdra_tiles(impl, p + impl.info.index_start);
     return {};
 }
 

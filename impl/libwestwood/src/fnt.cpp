@@ -13,7 +13,8 @@ struct FntReaderImpl {
     std::vector<uint8_t> data;  // Full file data for decoding
     std::string source_filename;
     uint32_t data_blk_offset = 0;  // Offset to glyph data
-    std::vector<uint16_t> unicode_table;  // Unicode -> glyph index (for UnicodeBitFont)
+    // Unicode -> glyph index (for UnicodeBitFont)
+    std::vector<uint16_t> unicode_table;
 };
 
 struct FntReader::Impl : FntReaderImpl {};
@@ -31,7 +32,9 @@ const std::string& FntReader::source_filename() const {
 
 // Detect FNT format from header
 // Returns nullopt if format cannot be detected
-static std::optional<FntFormat> detect_fnt_format(std::span<const uint8_t> data) {
+static std::optional<FntFormat> detect_fnt_format(
+    std::span<const uint8_t> data)
+{
     if (data.size() < 4) {
         return std::nullopt;  // Too small to detect
     }
@@ -251,7 +254,8 @@ static Result<void> parse_fnt_v4(FntReaderImpl& impl,
 
     if (info_blk + 6 > data.size()) {
         return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "FNT v4 InfoBlock out of bounds"));
+            make_error(ErrorCode::CorruptHeader,
+                       "FNT v4 InfoBlock out of bounds"));
     }
 
     // Read InfoBlock
@@ -264,7 +268,8 @@ static Result<void> parse_fnt_v4(FntReaderImpl& impl,
     uint16_t glyph_count = (width_blk - offset_blk) / 2;
     impl.info.glyph_count = glyph_count;
     impl.info.first_char = 0;
-    impl.info.last_char = static_cast<uint8_t>(glyph_count > 0 ? glyph_count - 1 : 0);
+    impl.info.last_char = static_cast<uint8_t>(
+        glyph_count > 0 ? glyph_count - 1 : 0);
 
     if (offset_blk + glyph_count * 2 > data.size() ||
         width_blk + glyph_count > data.size() ||
@@ -346,7 +351,8 @@ static Result<void> parse_fnt_bitfont(FntReaderImpl& impl,
     if (is_ra2) {
         if (data.size() < 0x30) {
             return std::unexpected(
-                make_error(ErrorCode::CorruptHeader, "RA2 BitFont header too small"));
+                make_error(ErrorCode::CorruptHeader,
+                           "RA2 BitFont header too small"));
         }
         stride = read_u32(p + 8);
         lines = read_u32(p + 12);
@@ -368,7 +374,8 @@ static Result<void> parse_fnt_bitfont(FntReaderImpl& impl,
 
     impl.info.stride = stride;
     impl.info.height = static_cast<uint8_t>(font_height);
-    impl.info.max_width = static_cast<uint8_t>(stride * 8);  // Max possible width
+    // Max possible width
+    impl.info.max_width = static_cast<uint8_t>(stride * 8);
     impl.info.first_char = static_cast<uint8_t>(start_symbol);
     impl.info.last_char = static_cast<uint8_t>(end_symbol);
 
@@ -419,12 +426,15 @@ static Result<void> parse_fnt_unicode_bitfont(FntReaderImpl& impl,
                                                std::span<const uint8_t> data) {
     // Header is 0x1C bytes + 0x20000 bytes for Unicode table = 0x2001C
     constexpr size_t UNICODE_TABLE_OFFSET = 0x1C;
-    constexpr size_t UNICODE_TABLE_SIZE = 0x10000 * 2;  // 65536 entries * 2 bytes
-    constexpr size_t HEADER_SIZE = UNICODE_TABLE_OFFSET + UNICODE_TABLE_SIZE;  // 0x2001C
+    // 65536 entries * 2 bytes
+    constexpr size_t UNICODE_TABLE_SIZE = 0x10000 * 2;
+    // 0x2001C
+    constexpr size_t HEADER_SIZE = UNICODE_TABLE_OFFSET + UNICODE_TABLE_SIZE;
 
     if (data.size() < HEADER_SIZE) {
         return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "Unicode BitFont header too small"));
+            make_error(ErrorCode::CorruptHeader,
+                       "Unicode BitFont header too small"));
     }
 
     impl.info.format = FntFormat::UnicodeBitFont;
@@ -436,7 +446,8 @@ static Result<void> parse_fnt_unicode_bitfont(FntReaderImpl& impl,
     // Verify magic
     if (std::memcmp(p, "fonT", 4) != 0) {
         return std::unexpected(
-            make_error(ErrorCode::UnsupportedFormat, "Invalid Unicode BitFont magic"));
+            make_error(ErrorCode::UnsupportedFormat,
+                       "Invalid Unicode BitFont magic"));
     }
 
     uint32_t ideograph_width = read_u32(p + 4);
@@ -543,101 +554,92 @@ Result<std::unique_ptr<FntReader>> FntReader::open(
     return reader;
 }
 
+// Decode V2: 1-bit monochrome, 1 byte per row
+static bool decode_glyph_v2(
+    const uint8_t* src,
+    uint8_t w, uint8_t h,
+    std::vector<uint8_t>& out)
+{
+    for (uint8_t y = 0; y < h; ++y) {
+        uint8_t row = src[y];
+        for (uint8_t x = 0; x < w && x < 8; ++x) {
+            out[y * w + x] = ((row >> (7 - x)) & 1) ? 255 : 0;
+        }
+    }
+    return true;
+}
+
+// Decode V3: 4-bit grayscale, 2 pixels per byte
+static bool decode_glyph_v3(
+    const uint8_t* src,
+    uint8_t w, uint8_t h,
+    std::vector<uint8_t>& out)
+{
+    size_t row_bytes = (w + 1) / 2;
+    for (uint8_t y = 0; y < h; ++y) {
+        for (uint8_t x = 0; x < w; ++x) {
+            uint8_t packed = src[y * row_bytes + x / 2];
+            uint8_t val = (x & 1) ? (packed & 0x0F) : ((packed >> 4) & 0x0F);
+            out[y * w + x] = val * 17;
+        }
+    }
+    return true;
+}
+
+// Decode BitFont: 1-bit monochrome with stride
+static bool decode_glyph_bitfont(
+    const uint8_t* src,
+    uint8_t w, uint8_t h,
+    uint32_t stride,
+    std::vector<uint8_t>& out)
+{
+    for (uint8_t y = 0; y < h; ++y) {
+        for (uint8_t x = 0; x < w; ++x) {
+            size_t byte_idx = y * stride + x / 8;
+            uint8_t bit_pos = 7 - (x % 8);
+            out[y * w + x] = ((src[byte_idx] >> bit_pos) & 1) ? 255 : 0;
+        }
+    }
+    return true;
+}
+
 std::vector<uint8_t> FntReader::decode_glyph(size_t glyph_index) const {
-    if (glyph_index >= impl_->glyphs.size()) {
-        return {};
-    }
+    if (glyph_index >= impl_->glyphs.size()) return {};
 
-    const auto& glyph = impl_->glyphs[glyph_index];
+    const auto& g = impl_->glyphs[glyph_index];
     const auto& info = impl_->info;
+    if (g.width == 0 || g.height == 0) return {};
 
-    if (glyph.width == 0 || glyph.height == 0) {
-        return {};
-    }
-
-    std::vector<uint8_t> result(glyph.width * glyph.height);
+    std::vector<uint8_t> result(g.width * g.height);
+    const auto& data = impl_->data;
 
     switch (info.format) {
-        case FntFormat::V2: {
-            // 1-bit monochrome: 1 byte per row, MSB = leftmost pixel
-            size_t data_offset = glyph.offset;
-            if (data_offset + glyph.height > impl_->data.size()) {
-                return {};
-            }
-
-            const uint8_t* src = impl_->data.data() + data_offset;
-            for (uint8_t y = 0; y < glyph.height; ++y) {
-                uint8_t row_byte = src[y];
-                for (uint8_t x = 0; x < glyph.width && x < 8; ++x) {
-                    // MSB is leftmost (0x80 = bit 7)
-                    uint8_t bit = (row_byte >> (7 - x)) & 1;
-                    result[y * glyph.width + x] = bit ? 255 : 0;
-                }
-            }
+        case FntFormat::V2:
+            if (g.offset + g.height > data.size()) return {};
+            decode_glyph_v2(data.data() + g.offset, g.width, g.height, result);
             break;
-        }
 
         case FntFormat::V3: {
-            // 4-bit grayscale: 2 pixels per byte
-            // V3 offsets are absolute file offsets (DataBlk is unused in v3)
-            size_t row_bytes = (glyph.width + 1) / 2;
-            size_t glyph_size = row_bytes * glyph.height;
-
-            size_t data_offset = glyph.offset;  // Absolute offset for V3
-            if (data_offset + glyph_size > impl_->data.size()) {
-                return {};
-            }
-
-            const uint8_t* src = impl_->data.data() + data_offset;
-            for (uint8_t y = 0; y < glyph.height; ++y) {
-                for (uint8_t x = 0; x < glyph.width; ++x) {
-                    size_t byte_idx = y * row_bytes + x / 2;
-                    uint8_t packed = src[byte_idx];
-
-                    // Even x: high nibble, odd x: low nibble
-                    uint8_t value = (x & 1) ? (packed & 0x0F) : ((packed >> 4) & 0x0F);
-
-                    // Scale 4-bit (0-15) to 8-bit (0-255)
-                    result[y * glyph.width + x] = value * 17;
-                }
-            }
+            size_t sz = ((g.width + 1) / 2) * g.height;
+            if (g.offset + sz > data.size()) return {};
+            decode_glyph_v3(data.data() + g.offset, g.width, g.height, result);
             break;
         }
 
         case FntFormat::V4: {
-            // 8-bit grayscale: 1 byte per pixel
-            size_t glyph_size = glyph.width * glyph.height;
-
-            size_t data_offset = impl_->data_blk_offset + glyph.offset;
-            if (data_offset + glyph_size > impl_->data.size()) {
-                return {};
-            }
-
-            const uint8_t* src = impl_->data.data() + data_offset;
-            std::memcpy(result.data(), src, glyph_size);
+            size_t sz = g.width * g.height;
+            size_t off = impl_->data_blk_offset + g.offset;
+            if (off + sz > data.size()) return {};
+            std::memcpy(result.data(), data.data() + off, sz);
             break;
         }
 
         case FntFormat::BitFont:
         case FntFormat::UnicodeBitFont: {
-            // 1-bit monochrome with stride
-            // glyph.offset points to the glyph entry (1 byte width + bitmap)
-            size_t bitmap_offset = glyph.offset + 1;  // Skip width byte
-            uint32_t stride = info.stride;
-
-            if (bitmap_offset + stride * glyph.height > impl_->data.size()) {
-                return {};
-            }
-
-            const uint8_t* src = impl_->data.data() + bitmap_offset;
-            for (uint8_t y = 0; y < glyph.height; ++y) {
-                for (uint8_t x = 0; x < glyph.width; ++x) {
-                    size_t byte_idx = y * stride + x / 8;
-                    uint8_t bit_pos = 7 - (x % 8);  // MSB first
-                    uint8_t bit = (src[byte_idx] >> bit_pos) & 1;
-                    result[y * glyph.width + x] = bit ? 255 : 0;
-                }
-            }
+            size_t off = g.offset + 1;
+            if (off + info.stride * g.height > data.size()) return {};
+            decode_glyph_bitfont(
+                data.data() + off, g.width, g.height, info.stride, result);
             break;
         }
 

@@ -23,7 +23,8 @@ struct PalInfo {
 class PalReader {
 public:
     static Result<std::unique_ptr<PalReader>> open(const std::string& path);
-    static Result<std::unique_ptr<PalReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<PalReader>> open(
+        std::span<const uint8_t> data);
 
     ~PalReader();
 

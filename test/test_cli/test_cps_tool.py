@@ -31,7 +31,9 @@ class TestCpsToolInfo:
         # CPS is always 320x200
         assert "320" in result.stdout_text and "200" in result.stdout_text
 
-    def test_info_shows_compression(self, cps_tool, testdata_cps_files, run):
+    def test_info_shows_compression(
+        self, cps_tool, testdata_cps_files, run
+    ):
         """Test info shows compression method."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
@@ -39,7 +41,9 @@ class TestCpsToolInfo:
         result.assert_success()
         # Should mention LCW or compression
 
-    def test_info_shows_embedded_palette(self, cps_tool, testdata_cps_files, run):
+    def test_info_shows_embedded_palette(
+        self, cps_tool, testdata_cps_files, run
+    ):
         """Test info shows embedded palette status."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
@@ -61,32 +65,46 @@ class TestCpsToolInfo:
 class TestCpsToolExport:
     """Test cps-tool export command."""
 
-    def test_export_png(self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir):
+    def test_export_png(
+        self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir
+    ):
         """Test exporting as PNG."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
         out_file = temp_dir / "image.png"
         # Use embedded palette or external
         if testdata_pal_files:
-            result = run(cps_tool, "export", "-p", testdata_pal_files[0],
-                        testdata_cps_files[0], "-o", str(out_file))
+            result = run(
+                cps_tool, "export", "-p", testdata_pal_files[0],
+                testdata_cps_files[0], "-o", str(out_file)
+            )
         else:
-            result = run(cps_tool, "export", testdata_cps_files[0], "-o", str(out_file))
+            result = run(
+                cps_tool, "export",
+                testdata_cps_files[0], "-o", str(out_file)
+            )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_png_dimensions(self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir):
+    def test_export_png_dimensions(
+        self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir
+    ):
         """Test exported PNG is 320x200."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
         import struct
         out_file = temp_dir / "image.png"
         if testdata_pal_files:
-            result = run(cps_tool, "export", "-p", testdata_pal_files[0],
-                        testdata_cps_files[0], "-o", str(out_file))
+            result = run(
+                cps_tool, "export", "-p", testdata_pal_files[0],
+                testdata_cps_files[0], "-o", str(out_file)
+            )
         else:
-            result = run(cps_tool, "export", testdata_cps_files[0], "-o", str(out_file))
+            result = run(
+                cps_tool, "export",
+                testdata_cps_files[0], "-o", str(out_file)
+            )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -99,22 +117,30 @@ class TestCpsToolExport:
 class TestCpsToolPalette:
     """Test palette handling."""
 
-    def test_embedded_palette(self, cps_tool, testdata_cps_files, run, temp_dir):
+    def test_embedded_palette(
+        self, cps_tool, testdata_cps_files, run, temp_dir
+    ):
         """Test using embedded palette."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
         out_file = temp_dir / "image.png"
         # Try without external palette
-        result = run(cps_tool, "export", testdata_cps_files[0], "-o", str(out_file))
+        result = run(
+            cps_tool, "export", testdata_cps_files[0], "-o", str(out_file)
+        )
         # May succeed if CPS has embedded palette
 
-    def test_external_palette_override(self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir):
+    def test_external_palette_override(
+        self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir
+    ):
         """Test external palette overrides embedded."""
         if not testdata_cps_files or not testdata_pal_files:
             pytest.skip("No CPS or PAL files in testdata")
         out_file = temp_dir / "image.png"
-        result = run(cps_tool, "export", "-p", testdata_pal_files[0],
-                    testdata_cps_files[0], "-o", str(out_file))
+        result = run(
+            cps_tool, "export", "-p", testdata_pal_files[0],
+            testdata_cps_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()

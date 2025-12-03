@@ -24,21 +24,24 @@ static Result<std::vector<uint8_t>> rle_decompress(
             // Run: repeat next byte (cmd & 0x7F) times
             uint16_t count = cmd & 0x7F;
             if (count == 0) {
-                // Extended count: next two bytes are 16-bit count (little-endian)
+                // Extended count: 16-bit little-endian
                 if (pos + 2 > input.size()) break;
                 count = input[pos] | (input[pos + 1] << 8);
                 pos += 2;
             }
             if (pos >= input.size()) break;
             uint8_t value = input[pos++];
-            for (uint16_t i = 0; i < count && output.size() < output_size; ++i) {
+            for (uint16_t i = 0; i < count; ++i) {
+                if (output.size() >= output_size) break;
                 output.push_back(value);
             }
         } else {
             // Literal: copy next (cmd) bytes
             uint8_t count = cmd;
             if (count == 0) continue;
-            for (int i = 0; i < count && pos < input.size() && output.size() < output_size; ++i) {
+            for (int i = 0; i < count; ++i) {
+                if (pos >= input.size()) break;
+                if (output.size() >= output_size) break;
                 output.push_back(input[pos++]);
             }
         }
@@ -52,154 +55,145 @@ static Result<std::vector<uint8_t>> rle_decompress(
     return output;
 }
 
+// LZW constants
+static constexpr int LZW_CLEAR = 256;
+static constexpr int LZW_END = 257;
+static constexpr int LZW_FIRST = 258;
+
+// LZW decoder state
+struct LzwState {
+    std::vector<std::vector<uint8_t>> dict;
+    std::span<const uint8_t> input;
+    size_t bit_pos = 0;
+    int code_bits = 9;
+    int next_code = LZW_FIRST;
+    int max_bits;
+    int max_code;
+
+    LzwState(std::span<const uint8_t> in, int mb)
+        : input(in), max_bits(mb), max_code((1 << mb) - 1) {}
+};
+
+// Initialize/reset LZW dictionary
+static void lzw_reset_dict(LzwState& st) {
+    st.dict.clear();
+    st.dict.resize(LZW_FIRST);
+    for (int i = 0; i < 256; ++i) {
+        st.dict[i] = {static_cast<uint8_t>(i)};
+    }
+    st.dict[LZW_CLEAR] = {};
+    st.dict[LZW_END] = {};
+    st.code_bits = 9;
+    st.next_code = LZW_FIRST;
+}
+
+// Read variable-length LZW code from bitstream
+static int lzw_read_code(LzwState& st) {
+    if (st.bit_pos + st.code_bits > st.input.size() * 8) return LZW_END;
+    int code = 0;
+    for (int i = 0; i < st.code_bits; ++i) {
+        size_t byte_idx = (st.bit_pos + i) / 8;
+        int bit_idx = (st.bit_pos + i) % 8;
+        if (st.input[byte_idx] & (1 << bit_idx)) code |= (1 << i);
+    }
+    st.bit_pos += st.code_bits;
+    return code;
+}
+
+// Output dictionary entry to output buffer
+static void lzw_output_entry(
+    int code,
+    const LzwState& st,
+    std::vector<uint8_t>& out,
+    size_t limit)
+{
+    if (code < static_cast<int>(st.dict.size()) && !st.dict[code].empty()) {
+        for (uint8_t b : st.dict[code]) {
+            if (out.size() >= limit) break;
+            out.push_back(b);
+        }
+    } else if (code < 256) {
+        out.push_back(static_cast<uint8_t>(code));
+    }
+}
+
+// Get entry for code (handling special case)
+static std::vector<uint8_t> lzw_get_entry(
+    int code, int prev, const LzwState& st)
+{
+    int dict_size = static_cast<int>(st.dict.size());
+    if (code < dict_size && !st.dict[code].empty()) {
+        return st.dict[code];
+    }
+    if (code == st.next_code && prev < dict_size) {
+        if (!st.dict[prev].empty()) {
+            auto e = st.dict[prev];
+            e.push_back(e[0]);
+            return e;
+        }
+    }
+    return {};
+}
+
+// Add new dictionary entry
+static void lzw_add_entry(
+    int prev, const std::vector<uint8_t>& entry, LzwState& st)
+{
+    int dict_size = static_cast<int>(st.dict.size());
+    if (st.next_code > st.max_code || prev >= dict_size) return;
+    std::vector<uint8_t> ne;
+    if (!st.dict[prev].empty()) {
+        ne = st.dict[prev];
+    } else if (prev < 256) {
+        ne = {static_cast<uint8_t>(prev)};
+    }
+    if (!entry.empty()) ne.push_back(entry[0]);
+    if (st.next_code < static_cast<int>(st.dict.size())) {
+        st.dict[st.next_code] = std::move(ne);
+    } else {
+        st.dict.push_back(std::move(ne));
+    }
+    st.next_code++;
+    if (st.next_code > (1 << st.code_bits) && st.code_bits < st.max_bits) {
+        st.code_bits++;
+    }
+}
+
 // Westwood LZW decompression (CPS compression types 1 and 2)
-// Standard LZW with configurable maximum code bits (12 or 14)
 static Result<std::vector<uint8_t>> lzw_decompress(
     std::span<const uint8_t> input, size_t output_size, int max_bits)
 {
     std::vector<uint8_t> output;
     output.reserve(output_size);
+    LzwState st(input, max_bits);
+    lzw_reset_dict(st);
 
-    // LZW dictionary: each entry is a string (stored as vector of bytes)
-    const int clear_code = 256;
-    const int end_code = 257;
-    const int first_code = 258;
-    const int max_code = (1 << max_bits) - 1;
+    int prev = lzw_read_code(st);
+    if (prev == LZW_CLEAR) prev = lzw_read_code(st);
+    if (prev == LZW_END) return output;
+    lzw_output_entry(prev, st, output, output_size);
 
-    // Dictionary entries: index -> string
-    std::vector<std::vector<uint8_t>> dict;
-
-    auto reset_dict = [&]() {
-        dict.clear();
-        dict.resize(first_code);
-        for (int i = 0; i < 256; ++i) {
-            dict[i] = { static_cast<uint8_t>(i) };
-        }
-        // Reserve space for clear and end codes (empty entries)
-        dict[clear_code] = {};
-        dict[end_code] = {};
-    };
-
-    reset_dict();
-
-    // Bit reader state
-    size_t bit_pos = 0;
-    int code_bits = 9;  // Start with 9-bit codes
-    int next_code = first_code;
-
-    auto read_code = [&]() -> int {
-        if (bit_pos + code_bits > input.size() * 8) {
-            return end_code;  // EOF
-        }
-
-        int code = 0;
-        for (int i = 0; i < code_bits; ++i) {
-            size_t byte_idx = (bit_pos + i) / 8;
-            int bit_idx = (bit_pos + i) % 8;
-            if (input[byte_idx] & (1 << bit_idx)) {
-                code |= (1 << i);
-            }
-        }
-        bit_pos += code_bits;
-        return code;
-    };
-
-    // Read first code
-    int prev_code = read_code();
-    if (prev_code == end_code || prev_code == clear_code) {
-        if (prev_code == clear_code) {
-            prev_code = read_code();
-        }
-        if (prev_code == end_code) {
-            return output;
-        }
-    }
-
-    // Output first code
-    if (prev_code < static_cast<int>(dict.size()) && !dict[prev_code].empty()) {
-        for (uint8_t b : dict[prev_code]) {
-            output.push_back(b);
-        }
-    } else if (prev_code < 256) {
-        output.push_back(static_cast<uint8_t>(prev_code));
-    }
-
-    // Process remaining codes
     while (output.size() < output_size) {
-        int code = read_code();
-
-        if (code == end_code) {
-            break;
-        }
-
-        if (code == clear_code) {
-            reset_dict();
-            code_bits = 9;
-            next_code = first_code;
-            prev_code = read_code();
-            if (prev_code == end_code) break;
-            if (prev_code < static_cast<int>(dict.size()) && !dict[prev_code].empty()) {
-                for (uint8_t b : dict[prev_code]) {
-                    output.push_back(b);
-                }
-            } else if (prev_code < 256) {
-                output.push_back(static_cast<uint8_t>(prev_code));
-            }
+        int code = lzw_read_code(st);
+        if (code == LZW_END) break;
+        if (code == LZW_CLEAR) {
+            lzw_reset_dict(st);
+            prev = lzw_read_code(st);
+            if (prev == LZW_END) break;
+            lzw_output_entry(prev, st, output, output_size);
             continue;
         }
-
-        std::vector<uint8_t> entry;
-        if (code < static_cast<int>(dict.size()) && !dict[code].empty()) {
-            entry = dict[code];
-        } else if (code == next_code) {
-            // Special case: code not yet in dictionary
-            if (prev_code < static_cast<int>(dict.size()) && !dict[prev_code].empty()) {
-                entry = dict[prev_code];
-                entry.push_back(entry[0]);
-            }
-        } else {
-            // Invalid code
-            break;
-        }
-
-        // Output the entry
+        auto entry = lzw_get_entry(code, prev, st);
+        if (entry.empty()) break;
         for (uint8_t b : entry) {
             if (output.size() >= output_size) break;
             output.push_back(b);
         }
-
-        // Add new dictionary entry: prev_code's string + first char of current entry
-        if (next_code <= max_code && prev_code < static_cast<int>(dict.size())) {
-            std::vector<uint8_t> new_entry;
-            if (!dict[prev_code].empty()) {
-                new_entry = dict[prev_code];
-            } else if (prev_code < 256) {
-                new_entry = { static_cast<uint8_t>(prev_code) };
-            }
-            if (!entry.empty()) {
-                new_entry.push_back(entry[0]);
-            }
-            if (next_code < static_cast<int>(dict.size())) {
-                dict[next_code] = std::move(new_entry);
-            } else {
-                dict.push_back(std::move(new_entry));
-            }
-            next_code++;
-
-            // Increase code size if needed
-            if (next_code > (1 << code_bits) && code_bits < max_bits) {
-                code_bits++;
-            }
-        }
-
-        prev_code = code;
+        lzw_add_entry(prev, entry, st);
+        prev = code;
     }
 
-    // Pad with zeros if needed
-    while (output.size() < output_size) {
-        output.push_back(0);
-    }
-
+    while (output.size() < output_size) output.push_back(0);
     return output;
 }
 
@@ -222,137 +216,117 @@ const std::array<Color, 256>* CpsReader::palette() const {
     return impl_->has_palette ? &impl_->palette : nullptr;
 }
 
-static Result<void> parse_cps(CpsReaderImpl& impl,
-                               std::span<const uint8_t> data) {
-    // Minimum header size: 10 bytes
-    if (data.size() < 10) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "CPS file too small"));
-    }
-
-    SpanReader r(data);
-
-    // Read header
+// Read CPS header fields
+static Result<void> read_cps_header(SpanReader& r, CpsInfo& info) {
     auto file_size = r.read_u16();
     if (!file_size) return std::unexpected(file_size.error());
-    impl.info.file_size = *file_size;
+    info.file_size = *file_size;
 
     auto compression = r.read_u16();
     if (!compression) return std::unexpected(compression.error());
-    impl.info.compression = *compression;
+    info.compression = *compression;
 
     auto uncomp_size = r.read_u32();
     if (!uncomp_size) return std::unexpected(uncomp_size.error());
-    impl.info.uncomp_size = *uncomp_size;
+    info.uncomp_size = *uncomp_size;
 
     auto pal_size = r.read_u16();
     if (!pal_size) return std::unexpected(pal_size.error());
-    impl.info.palette_size = *pal_size;
+    info.palette_size = *pal_size;
 
-    // Validate header
-    // file_size + 2 should equal actual file size
-    if (impl.info.file_size + 2 != data.size()) {
-        // Some files may have padding; allow if close
-        if (impl.info.file_size + 2 > data.size()) {
-            return std::unexpected(
-                make_error(ErrorCode::CorruptHeader, "CPS file size mismatch"));
-        }
-    }
+    return {};
+}
 
-    // Validate compression - we recognize all methods but may not support all
-    if (impl.info.compression > 4) {
+// Validate CPS header
+static Result<void> validate_cps_header(
+    const CpsInfo& info, size_t data_size)
+{
+    if (info.file_size + 2 > data_size)
         return std::unexpected(
-            make_error(ErrorCode::UnsupportedFormat,
-                       "Unknown CPS compression method"));
-    }
+            make_error(ErrorCode::CorruptHeader, "CPS size"));
+    if (info.compression > 4)
+        return std::unexpected(
+            make_error(ErrorCode::UnsupportedFormat, "CPS comp"));
+    return {};
+}
 
-    // Standard CPS is 320x200
+// Convert 6-bit palette to 8-bit
+static void convert_6bit_palette(
+    std::span<const uint8_t> src,
+    std::array<Color, 256>& dst)
+{
+    const uint8_t* p = src.data();
+    for (int i = 0; i < 256; ++i) {
+        dst[i] = Color{
+            static_cast<uint8_t>((p[0] << 2) | (p[0] >> 4)),
+            static_cast<uint8_t>((p[1] << 2) | (p[1] >> 4)),
+            static_cast<uint8_t>((p[2] << 2) | (p[2] >> 4))
+        };
+        p += 3;
+    }
+}
+
+// Decompress CPS image data
+static Result<std::vector<uint8_t>> decompress_cps_image(
+    std::span<const uint8_t> data,
+    uint16_t compression,
+    uint32_t uncomp_size)
+{
+    switch (static_cast<CpsCompression>(compression)) {
+        case CpsCompression::None:
+            return std::vector<uint8_t>(data.begin(), data.end());
+        case CpsCompression::LCW:
+            return lcw_decompress(data, uncomp_size);
+        case CpsCompression::LZW12:
+            return lzw_decompress(data, uncomp_size, 12);
+        case CpsCompression::LZW14:
+            return lzw_decompress(data, uncomp_size, 14);
+        case CpsCompression::RLE:
+            return rle_decompress(data, uncomp_size);
+        default:
+            return std::unexpected(
+                make_error(ErrorCode::UnsupportedFormat, "CPS"));
+    }
+}
+
+static Result<void> parse_cps(
+    CpsReaderImpl& impl, std::span<const uint8_t> data)
+{
+    if (data.size() < 10)
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "CPS small"));
+
+    SpanReader r(data);
+    auto hdr = read_cps_header(r, impl.info);
+    if (!hdr) return hdr;
+
+    auto val = validate_cps_header(impl.info, data.size());
+    if (!val) return val;
+
     impl.info.width = 320;
     impl.info.height = 200;
     impl.info.has_palette = (impl.info.palette_size == 768);
 
-    // Read embedded palette if present
-    // CPS palettes are 6-bit (values 0-63), need to scale to 8-bit
     if (impl.info.has_palette) {
         auto pal_data = r.read_bytes(768);
         if (!pal_data) return std::unexpected(pal_data.error());
-
-        const uint8_t* p = pal_data->data();
-        for (int i = 0; i < 256; ++i) {
-            uint8_t r6 = p[0];
-            uint8_t g6 = p[1];
-            uint8_t b6 = p[2];
-            // 6-bit to 8-bit conversion: (val << 2) | (val >> 4)
-            impl.palette[i] = Color{
-                static_cast<uint8_t>((r6 << 2) | (r6 >> 4)),
-                static_cast<uint8_t>((g6 << 2) | (g6 >> 4)),
-                static_cast<uint8_t>((b6 << 2) | (b6 >> 4))
-            };
-            p += 3;
-        }
+        convert_6bit_palette(*pal_data, impl.palette);
         impl.has_palette = true;
     }
 
-    // Read image data
-    size_t image_offset = r.pos();
-    size_t image_size = data.size() - image_offset;
-    impl.info.compressed_size = static_cast<uint32_t>(image_size);
-    auto image_data = data.subspan(image_offset, image_size);
+    size_t img_off = r.pos();
+    size_t comp_size = data.size() - img_off;
+    impl.info.compressed_size = static_cast<uint32_t>(comp_size);
+    auto img = data.subspan(img_off);
 
-    switch (static_cast<CpsCompression>(impl.info.compression)) {
-        case CpsCompression::None:
-            // Uncompressed
-            impl.pixels.assign(image_data.begin(), image_data.end());
-            break;
+    auto pixels = decompress_cps_image(
+        img, impl.info.compression, impl.info.uncomp_size);
+    if (!pixels) return std::unexpected(pixels.error());
+    impl.pixels = std::move(*pixels);
 
-        case CpsCompression::LCW:
-            // LCW compressed (Format80)
-            {
-                auto result = lcw_decompress(image_data, impl.info.uncomp_size);
-                if (!result) return std::unexpected(result.error());
-                impl.pixels = std::move(*result);
-            }
-            break;
-
-        case CpsCompression::LZW12:
-            // LZW compressed with 12-bit codes
-            {
-                auto result = lzw_decompress(image_data, impl.info.uncomp_size, 12);
-                if (!result) return std::unexpected(result.error());
-                impl.pixels = std::move(*result);
-            }
-            break;
-
-        case CpsCompression::LZW14:
-            // LZW compressed with 14-bit codes
-            {
-                auto result = lzw_decompress(image_data, impl.info.uncomp_size, 14);
-                if (!result) return std::unexpected(result.error());
-                impl.pixels = std::move(*result);
-            }
-            break;
-
-        case CpsCompression::RLE:
-            // RLE compressed
-            {
-                auto result = rle_decompress(image_data, impl.info.uncomp_size);
-                if (!result) return std::unexpected(result.error());
-                impl.pixels = std::move(*result);
-            }
-            break;
-
-        default:
-            return std::unexpected(
-                make_error(ErrorCode::UnsupportedFormat,
-                           "Unknown CPS compression method"));
-    }
-
-    // Validate pixel count
-    if (impl.pixels.size() != 64000) {
+    if (impl.pixels.size() != 64000)
         return std::unexpected(
-            make_error(ErrorCode::CorruptData,
-                       "CPS pixel data size mismatch"));
-    }
+            make_error(ErrorCode::CorruptData, "CPS pixels"));
 
     return {};
 }

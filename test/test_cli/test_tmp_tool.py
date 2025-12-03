@@ -61,7 +61,10 @@ class TestTmpToolInfo:
 class TestTmpToolExport:
     """Test tmp-tool export command."""
 
-    def test_export_png(self, tmp_tool, testdata_tmp_files, testdata_pal_files, run, temp_dir):
+    def test_export_png(
+        self, tmp_tool, testdata_tmp_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test exporting tiles as PNG."""
         if not testdata_tmp_files or not testdata_pal_files:
             pytest.skip("No TMP or PAL files in testdata")
@@ -72,12 +75,17 @@ class TestTmpToolExport:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_individual_tiles(self, tmp_tool, testdata_tmp_files, testdata_pal_files, run, temp_dir):
+    def test_export_individual_tiles(
+        self, tmp_tool, testdata_tmp_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test exporting individual tiles."""
         if not testdata_tmp_files or not testdata_pal_files:
             pytest.skip("No TMP or PAL files in testdata")
-        result = run(tmp_tool, "export", "--frames", "-p", testdata_pal_files[0],
-                    testdata_tmp_files[0], "-o", str(temp_dir / "tile"))
+        result = run(
+            tmp_tool, "export", "--frames", "-p", testdata_pal_files[0],
+            testdata_tmp_files[0], "-o", str(temp_dir / "tile")
+        )
         if result.returncode != 0:
             pytest.skip("Frame export not implemented")
         png_files = list(temp_dir.glob("tile_*.png"))

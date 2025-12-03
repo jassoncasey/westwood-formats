@@ -14,7 +14,9 @@ PalReader::PalReader() : impl_(std::make_unique<Impl>()) {}
 PalReader::~PalReader() = default;
 
 const PalInfo& PalReader::info() const { return impl_->info; }
-const std::array<Color, 256>& PalReader::colors() const { return impl_->colors; }
+const std::array<Color, 256>& PalReader::colors() const {
+    return impl_->colors;
+}
 
 Color PalReader::color_8bit(uint8_t index) const {
     const Color& c = impl_->colors[index];

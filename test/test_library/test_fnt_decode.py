@@ -58,7 +58,10 @@ class TestFntFontInfo:
         import json
         data = json.loads(result.stdout_text)
         # Should have glyph count info
-        assert any(k in data for k in ["glyphs", "numGlyphs", "glyph_count", "characters"])
+        assert any(
+            k in data
+            for k in ["glyphs", "numGlyphs", "glyph_count", "characters"]
+        )
 
     def test_max_dimensions(self, fnt_tool, testdata_fnt_files, run):
         """Test MaxHeight/MaxWidth extraction."""
@@ -67,7 +70,10 @@ class TestFntFontInfo:
         result = run(fnt_tool, "info", testdata_fnt_files[0])
         result.assert_success()
         # Should have dimension info (format: "Max dimensions:  10x11")
-        assert "dimensions" in result.stdout_text.lower() or "x" in result.stdout_text
+        assert (
+            "dimensions" in result.stdout_text.lower()
+            or "x" in result.stdout_text
+        )
 
 
 class TestFntGlyphArrays:
@@ -82,7 +88,10 @@ class TestFntGlyphArrays:
         import json
         data = json.loads(result.stdout_text)
         # Should have glyph-related info
-        assert any(k in data for k in ["glyphs", "numGlyphs", "glyph_count", "characters"])
+        assert any(
+            k in data
+            for k in ["glyphs", "numGlyphs", "glyph_count", "characters"]
+        )
 
     def test_dimensions_in_json(self, fnt_tool, testdata_fnt_files, run):
         """Test max dimensions are available in JSON output."""
@@ -112,7 +121,13 @@ class TestFntPixelData:
         """Test exporting font glyphs to PNG."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
-        result = run(fnt_tool, "export", testdata_fnt_files[0], "-o", str(temp_dir / "font.png"))
+        result = run(
+            fnt_tool,
+            "export",
+            testdata_fnt_files[0],
+            "-o",
+            str(temp_dir / "font.png"),
+        )
         result.assert_success()
         # Should create PNG file
         png_files = list(temp_dir.glob("*.png"))
@@ -129,14 +144,18 @@ class TestFntPixelData:
         assert calc_stride(4) == 2   # 16 bits -> 2 bytes
         assert calc_stride(5) == 3   # 20 bits -> 3 bytes
 
-    def test_export_multiple_fonts(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+    def test_export_multiple_fonts(
+        self, fnt_tool, testdata_fnt_files, run, temp_dir
+    ):
         """Test exporting multiple font files."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
         for i, fnt_file in enumerate(testdata_fnt_files[:2]):  # Test first 2
             out_dir = temp_dir / f"font_{i}"
             out_dir.mkdir()
-            result = run(fnt_tool, "export", fnt_file, "-o", str(out_dir / "font.png"))
+            result = run(
+                fnt_tool, "export", fnt_file, "-o", str(out_dir / "font.png")
+            )
             result.assert_success()
 
 

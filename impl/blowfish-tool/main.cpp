@@ -11,17 +11,19 @@ static void print_usage() {
     std::cerr << "Usage: blowfish-tool <command> [options]\n"
               << "\n"
               << "Commands:\n"
-              << "    decrypt <input> <output>   Decrypt file with Westwood MIX key\n"
-              << "    encrypt <input> <output>   Encrypt file with Westwood MIX key\n"
-              << "    info <file.mix>            Show encryption info for MIX file\n"
-              << "    derive <keyfile>           Derive Blowfish key from 80-byte key source\n"
+              << "    decrypt <in> <out>   Decrypt file with Westwood MIX key\n"
+              << "    encrypt <in> <out>   Encrypt file with Westwood MIX key\n"
+              << "    info <file.mix>      Show encryption info for MIX file\n"
+              << "    derive <keysrc>      Derive Blowfish key from source\n"
               << "\n"
               << "Options:\n"
               << "    -h, --help     Show help message\n"
               << "    -V, --version  Show version\n"
               << "    -v, --verbose  Verbose output\n"
+              << "    -q, --quiet    Suppress non-essential output\n"
               << "\n"
-              << "The decrypt/encrypt commands use the Westwood public key to derive\n"
+              << "The decrypt/encrypt commands use the Westwood public key\n"
+              << "to derive\n"
               << "the Blowfish key from the first 80 bytes of input.\n";
 }
 
@@ -102,12 +104,14 @@ static int cmd_derive(const std::string& path) {
     if (data->size() >= 84) {
         uint16_t first_word = (*data)[0] | (uint16_t((*data)[1]) << 8);
         uint32_t flags = (*data)[0] | (uint32_t((*data)[1]) << 8) |
-                         (uint32_t((*data)[2]) << 16) | (uint32_t((*data)[3]) << 24);
+                         (uint32_t((*data)[2]) << 16) |
+                         (uint32_t((*data)[3]) << 24);
         constexpr uint32_t FLAG_ENCRYPTED = 0x00020000;
         if (first_word == 0 && (flags & FLAG_ENCRYPTED)) {
             offset = 4;
             min_size = 84;
-            std::cout << "Detected encrypted MIX file, reading key_source from offset 4\n\n";
+            std::cout << "Detected encrypted MIX file, "
+                      << "reading key_source from offset 4\n\n";
         }
     }
 
@@ -127,7 +131,8 @@ static int cmd_derive(const std::string& path) {
     }
 
     std::cout << "Key source:\n" << format_hex(key_source.data(), 80) << "\n\n";
-    std::cout << "Blowfish key:\n" << format_hex(key_result->data(), 56) << "\n";
+    std::cout << "Blowfish key:\n"
+              << format_hex(key_result->data(), 56) << "\n";
 
     return 0;
 }
@@ -141,7 +146,8 @@ static int cmd_decrypt(const std::string& input_path,
     }
 
     if (data->size() < 84) {
-        std::cerr << "blowfish-tool: file too small (need header + key source)\n";
+        std::cerr << "blowfish-tool: file too small "
+                  << "(need header + key source)\n";
         return 1;
     }
 
@@ -183,7 +189,8 @@ static int cmd_decrypt(const std::string& input_path,
     }
 
     // Calculate total encrypted size:
-    // Header (6 bytes) + index (c_files * 12 bytes), rounded up to 8-byte blocks
+    // Header (6 bytes) + index (c_files * 12 bytes)
+    // rounded up to 8-byte blocks
     size_t header_and_index_size = 6 + (size_t(c_files) * 12);
     size_t total_encrypted_size = (header_and_index_size + 7) & ~size_t(7);
 
@@ -287,7 +294,8 @@ static int cmd_encrypt(const std::string& input_path,
     uint16_t c_files = wwd::read_u16(data->data() + 84);
 
     // Calculate total encrypted size:
-    // Header (6 bytes) + index (c_files * 12 bytes), rounded up to 8-byte blocks
+    // Header (6 bytes) + index (c_files * 12 bytes)
+    // rounded up to 8-byte blocks
     size_t header_and_index_size = 6 + (size_t(c_files) * 12);
     size_t total_encrypted_size = (header_and_index_size + 7) & ~size_t(7);
 
@@ -340,7 +348,9 @@ int main(int argc, char* argv[]) {
     // Check for verbose flag
     bool verbose = false;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "-v") == 0 || std::strcmp(argv[i], "--verbose") == 0) {
+        bool is_v = std::strcmp(argv[i], "-v") == 0;
+        is_v = is_v || std::strcmp(argv[i], "--verbose") == 0;
+        if (is_v) {
             verbose = true;
             break;
         }

@@ -16,3 +16,9 @@ reference/
 # Editor
 *.swp
 *~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

@@ -506,7 +506,8 @@ struct BigInt {
     void subtract(const BigInt& other) {
         uint64_t borrow = 0;
         for (size_t i = 0; i < MAX_WORDS; ++i) {
-            uint64_t diff = uint64_t(words[i]) - uint64_t(other.words[i]) - borrow;
+            uint64_t diff = uint64_t(words[i])
+                - uint64_t(other.words[i]) - borrow;
             words[i] = uint32_t(diff);
             borrow = (diff >> 32) ? 1 : 0;
         }
@@ -516,7 +517,8 @@ struct BigInt {
     void add(const BigInt& other) {
         uint64_t carry = 0;
         for (size_t i = 0; i < MAX_WORDS; ++i) {
-            uint64_t sum = uint64_t(words[i]) + uint64_t(other.words[i]) + carry;
+            uint64_t sum = uint64_t(words[i])
+                + uint64_t(other.words[i]) + carry;
             words[i] = uint32_t(sum);
             carry = sum >> 32;
         }
@@ -621,7 +623,8 @@ struct BigInt {
             if (shift == 0) break;
             // Shift divisor right by 1
             for (size_t i = 0; i < MAX_WORDS; ++i) {
-                uint32_t next = (i + 1 < MAX_WORDS) ? shifted_n.words[i + 1] : 0;
+                uint32_t next = (i + 1 < MAX_WORDS)
+                    ? shifted_n.words[i + 1] : 0;
                 shifted_n.words[i] = (shifted_n.words[i] >> 1) | (next << 31);
             }
             shifted_n.normalize();

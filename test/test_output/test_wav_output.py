@@ -22,7 +22,9 @@ class TestWavHeader:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -33,7 +35,9 @@ class TestWavHeader:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -44,7 +48,9 @@ class TestWavHeader:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -57,7 +63,9 @@ class TestWavHeader:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -69,7 +77,9 @@ class TestWavHeader:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -85,7 +95,9 @@ class TestWavPcmFormat:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -97,7 +109,9 @@ class TestWavPcmFormat:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -116,7 +130,9 @@ class TestWavPcmFormat:
 class TestWavSampleRate:
     """Test sample rate preservation."""
 
-    def test_sample_rate_preserved(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_sample_rate_preserved(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test sample rate matches source AUD."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -130,7 +146,9 @@ class TestWavSampleRate:
 
         # Export and check WAV
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -149,7 +167,9 @@ class TestWavSampleRate:
 class TestWavChannels:
     """Test channel preservation."""
 
-    def test_channel_count_preserved(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_channel_count_preserved(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test channel count matches source AUD."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -163,19 +183,25 @@ class TestWavChannels:
 
         # Export and check WAV
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
         wav_channels = struct.unpack("<H", data[22:24])[0]
         assert wav_channels == source_channels
 
-    def test_mono_block_align(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_mono_block_align(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test mono block alignment (2 bytes for 16-bit)."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -215,28 +241,38 @@ class TestWavByteOrder:
 class TestWavDataIntegrity:
     """Test audio data integrity."""
 
-    def test_data_size_consistency(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_data_size_consistency(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test data chunk size matches actual data."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
         # Find data chunk offset
         data_offset = data.find(b"data")
         assert data_offset > 0
-        data_size = struct.unpack("<I", data[data_offset + 4:data_offset + 8])[0]
+        data_size = struct.unpack(
+            "<I", data[data_offset + 4:data_offset + 8]
+        )[0]
         actual_size = len(data) - (data_offset + 8)
         assert data_size == actual_size
 
-    def test_sample_count_matches_duration(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_sample_count_matches_duration(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test sample count corresponds to duration."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -248,7 +284,9 @@ class TestWavDataIntegrity:
 
         # Find data chunk
         data_offset = data.find(b"data")
-        data_size = struct.unpack("<I", data[data_offset + 4:data_offset + 8])[0]
+        data_size = struct.unpack(
+            "<I", data[data_offset + 4:data_offset + 8]
+        )[0]
 
         # Calculate
         bytes_per_sample = bits // 8

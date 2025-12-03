@@ -18,14 +18,24 @@ from pathlib import Path
 class TestPngSignature:
     """Test PNG file signature."""
 
-    def test_png_signature(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_png_signature(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test PNG magic bytes."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         # shp-tool creates numbered frames
@@ -49,14 +59,24 @@ class TestPngSignature:
 class TestPngChunks:
     """Test PNG chunk structure."""
 
-    def test_ihdr_chunk_present(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_ihdr_chunk_present(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test IHDR chunk is first chunk."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -66,14 +86,24 @@ class TestPngChunks:
         # IHDR at offset 8 (after signature)
         assert data[12:16] == b"IHDR"
 
-    def test_idat_chunk_present(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_idat_chunk_present(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test IDAT chunk is present."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -82,21 +112,31 @@ class TestPngChunks:
         data = png_files[0].read_bytes()
         assert b"IDAT" in data
 
-    def test_iend_chunk_present(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_iend_chunk_present(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test IEND chunk terminates file."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
         if not png_files:
             pytest.skip("No PNG files created")
         data = png_files[0].read_bytes()
-        # IEND should be at end (4 bytes length + 4 bytes type + 4 bytes CRC = 12 bytes)
+        # IEND at end (4 bytes length + 4 bytes type + 4 bytes CRC = 12)
         assert data[-12:-8] == b"\x00\x00\x00\x00"  # Length 0
         assert data[-8:-4] == b"IEND"
 
@@ -104,14 +144,24 @@ class TestPngChunks:
 class TestPngRgbaFormat:
     """Test RGBA 32-bit format."""
 
-    def test_color_type_rgba(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_color_type_rgba(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test color type is RGBA (6)."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -122,14 +172,24 @@ class TestPngRgbaFormat:
         color_type = data[25]
         assert color_type == 6  # RGBA
 
-    def test_bit_depth_8(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_bit_depth_8(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test bit depth is 8."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -148,7 +208,9 @@ class TestPngRgbaFormat:
 class TestPngDimensions:
     """Test PNG dimensions match source."""
 
-    def test_width_matches_source(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_width_matches_source(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test PNG width matches SHP frame width."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
@@ -164,7 +226,15 @@ class TestPngDimensions:
 
         # Export and check PNG
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -174,7 +244,9 @@ class TestPngDimensions:
         png_width = struct.unpack(">I", data[16:20])[0]
         assert png_width == source_width
 
-    def test_height_matches_source(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_height_matches_source(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test PNG height matches SHP frame height."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
@@ -190,7 +262,15 @@ class TestPngDimensions:
 
         # Export and check PNG
         out_file = temp_dir / "test.png"
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         png_files = sorted(temp_dir.glob("test.png_*.png"))
@@ -255,14 +335,25 @@ class TestPngColorConversion:
 class TestPngSpriteSheet:
     """Test sprite sheet output."""
 
-    def test_sheet_dimensions(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_sheet_dimensions(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test sprite sheet has correct total dimensions."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "sheet.png"
-        result = run(shp_tool, "export", "--sheet", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(out_file))
+        result = run(
+            shp_tool,
+            "export",
+            "--sheet",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(out_file),
+        )
         if result.returncode != 0:
             pytest.skip("Sheet export not implemented")
         # Sheet should contain all frames
@@ -277,27 +368,47 @@ class TestPngSpriteSheet:
 class TestPngFrameExport:
     """Test individual frame export."""
 
-    def test_frames_output(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_frames_output(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test --frames produces multiple files."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
-        # SHP export normally creates individual frames; test the default behavior
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(temp_dir / "frame.png"))
+        # SHP export normally creates individual frames; test default
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(temp_dir / "frame.png"),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         # Should produce frame.png_000.png, frame.png_001.png, etc.
         png_files = list(temp_dir.glob("frame.png_*.png"))
         assert len(png_files) > 0
 
-    def test_frame_numbering(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_frame_numbering(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test frame numbering format (min 3 digits)."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
-        result = run(shp_tool, "export", "-p", testdata_pal_files[0], testdata_shp_files[0], "-o", str(temp_dir / "frame.png"))
+        result = run(
+            shp_tool,
+            "export",
+            "-p",
+            testdata_pal_files[0],
+            testdata_shp_files[0],
+            "-o",
+            str(temp_dir / "frame.png"),
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         # Check naming pattern

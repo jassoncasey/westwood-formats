@@ -58,7 +58,8 @@ struct TmpInfo {
 class TmpReader {
 public:
     static Result<std::unique_ptr<TmpReader>> open(const std::string& path);
-    static Result<std::unique_ptr<TmpReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<TmpReader>> open(
+        std::span<const uint8_t> data);
 
     ~TmpReader();
 

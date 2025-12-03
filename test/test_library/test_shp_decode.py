@@ -23,7 +23,8 @@ class TestShpHeaderParsing:
         result = run(shp_tool, "info", testdata_shp_files[0])
         result.assert_success()
         # Should output frame count and dimensions
-        assert "frame" in result.stdout_text.lower() or "Frame" in result.stdout_text
+        assert ("frame" in result.stdout_text.lower() or
+                "Frame" in result.stdout_text)
 
     def test_frame_count(self, shp_tool, testdata_shp_files, run):
         """Test frame count extraction."""
@@ -34,7 +35,9 @@ class TestShpHeaderParsing:
         import json
         data = json.loads(result.stdout_text)
         assert "frameCount" in data or "frame_count" in data or "frames" in data
-        frame_count = data.get("frameCount") or data.get("frame_count") or data.get("frames")
+        frame_count = (data.get("frameCount") or
+                       data.get("frame_count") or
+                       data.get("frames"))
         assert frame_count > 0
 
     def test_dimensions(self, shp_tool, testdata_shp_files, run):
@@ -109,7 +112,8 @@ class TestShpFrameOffsetTable:
         result.assert_success()
         import json
         data = json.loads(result.stdout_text)
-        # XOR delta frames reference other frames - if we have any, parsing worked
+        # XOR delta frames reference other frames - if we have any,
+        # parsing worked
         xor = data.get("xor_frames", 0)
         # Just verify we can parse the file
         assert "frames" in data
@@ -118,7 +122,8 @@ class TestShpFrameOffsetTable:
 class TestShpLcwFrames:
     """Test LCW (Format80) frame decompression."""
 
-    def test_lcw_frame_decode(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_lcw_frame_decode(self, shp_tool, testdata_shp_files,
+                              testdata_pal_files, run, temp_dir):
         """Test decoding of LCW-only frame."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
@@ -161,7 +166,8 @@ class TestShpXorDeltaFrames:
         # Just verify we can parse the format
         assert "xor_frames" in data
 
-    def test_xor_delta_against_previous(self, shp_tool, testdata_shp_files, run):
+    def test_xor_delta_against_previous(self, shp_tool,
+                                         testdata_shp_files, run):
         """Test XOR delta frame against previous (Format 0x20)."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
@@ -176,7 +182,8 @@ class TestShpXorDeltaFrames:
         # No XOR frames found but that's ok
         assert True
 
-    def test_frame_chain_resolution(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_frame_chain_resolution(self, shp_tool, testdata_shp_files,
+                                     testdata_pal_files, run, temp_dir):
         """Test resolving frame reference chain."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")
@@ -194,7 +201,8 @@ class TestShpXorDeltaFrames:
         png_files = list(temp_dir.glob("*.png"))
         assert len(png_files) == frame_count
 
-    def test_cumulative_deltas(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_cumulative_deltas(self, shp_tool, testdata_shp_files,
+                                testdata_pal_files, run, temp_dir):
         """Test cumulative XOR delta application."""
         if not testdata_shp_files:
             pytest.skip("No SHP files in testdata")

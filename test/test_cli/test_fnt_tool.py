@@ -27,7 +27,8 @@ class TestFntToolInfo:
             pytest.skip("No FNT files in testdata")
         result = run(fnt_tool, "info", testdata_fnt_files[0])
         result.assert_success()
-        assert "glyph" in result.stdout_text.lower() or "char" in result.stdout_text.lower()
+        stdout_lower = result.stdout_text.lower()
+        assert "glyph" in stdout_lower or "char" in stdout_lower
 
     def test_info_shows_dimensions(self, fnt_tool, testdata_fnt_files, run):
         """Test info shows max dimensions."""
@@ -55,12 +56,16 @@ class TestFntToolExport:
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
         out_file = temp_dir / "font.png"
-        result = run(fnt_tool, "export", testdata_fnt_files[0], "-o", str(out_file))
+        result = run(
+            fnt_tool, "export", testdata_fnt_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_individual_glyphs(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+    def test_export_individual_glyphs(
+        self, fnt_tool, testdata_fnt_files, run, temp_dir
+    ):
         """Test exporting individual glyph PNGs."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
@@ -89,7 +94,9 @@ class TestFntToolMetrics:
         data = json.loads(out_file.read_text())
         assert "glyphs" in data
 
-    def test_metrics_glyph_structure(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+    def test_metrics_glyph_structure(
+        self, fnt_tool, testdata_fnt_files, run, temp_dir
+    ):
         """Test metrics JSON glyph structure."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
@@ -110,12 +117,16 @@ class TestFntToolMetrics:
 class TestFntToolGrayscale:
     """Test grayscale output."""
 
-    def test_grayscale_output(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+    def test_grayscale_output(
+        self, fnt_tool, testdata_fnt_files, run, temp_dir
+    ):
         """Test font exports as grayscale."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
         out_file = temp_dir / "font.png"
-        result = run(fnt_tool, "export", testdata_fnt_files[0], "-o", str(out_file))
+        result = run(
+            fnt_tool, "export", testdata_fnt_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         # Check PNG is grayscale or grayscale+alpha

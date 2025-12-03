@@ -21,7 +21,9 @@ class TestSwatchDimensions:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -33,7 +35,9 @@ class TestSwatchDimensions:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -45,7 +49,9 @@ class TestSwatchDimensions:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -121,7 +127,9 @@ class TestSwatchFormat:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -133,7 +141,9 @@ class TestSwatchFormat:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()
@@ -141,12 +151,16 @@ class TestSwatchFormat:
         # RGB = 2, RGBA = 6 (both acceptable)
         assert color_type in [2, 6]
 
-    def test_8bit_per_channel(self, pal_tool, testdata_pal_files, run, temp_dir):
+    def test_8bit_per_channel(
+        self, pal_tool, testdata_pal_files, run, temp_dir
+    ):
         """Test 8-bit per color channel."""
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()

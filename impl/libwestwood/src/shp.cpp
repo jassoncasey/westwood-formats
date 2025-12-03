@@ -23,30 +23,52 @@ const std::vector<ShpFrameInfo>& ShpReader::frames() const {
     return impl_->frames;
 }
 
+// Read 24-bit little-endian value
+static uint32_t read_u24(const uint8_t* p) {
+    return p[0] | (p[1] << 8) | (p[2] << 16);
+}
+
+// Parse a single TD frame entry (8 bytes)
+static ShpFrameInfo parse_td_entry(
+    const uint8_t* entry, uint16_t w, uint16_t h)
+{
+    ShpFrameInfo frame{};
+    frame.width = w;
+    frame.height = h;
+    frame.offset_x = 0;
+    frame.offset_y = 0;
+    frame.data_offset = read_u24(entry);
+    frame.format = entry[3];
+    frame.ref_offset = read_u24(entry + 4);
+    return frame;
+}
+
+// Calculate frame data size from next offset or file end
+static uint32_t calc_frame_size(
+    uint32_t offset, uint32_t next_off, uint32_t end)
+{
+    if (next_off > offset) return next_off - offset;
+    return end - offset;
+}
+
+// Count frame types for TD format
+static void count_td_frame_type(ShpInfo& info, uint8_t format) {
+    if (format & 0x80)
+        info.lcw_frames++;
+    else if (format & 0x40 || format & 0x20)
+        info.xor_frames++;
+    else
+        info.lcw_frames++;
+}
+
 static Result<void> parse_shp_td(ShpReaderImpl& impl,
                                   std::span<const uint8_t> data) {
-    // TD/RA SHP header:
-    // Offset  Size  Description
-    // 0       2     Frame count
-    // 2       2     X offset (not used, usually 0)
-    // 4       2     Y offset (not used, usually 0)
-    // 6       2     Width
-    // 8       2     Height
-    // 10      2     Delta size (largest frame)
-    // 12      2     Flags (unused)
-    // Then frame offset table: 8 bytes per frame
-    //   Entry format: 3-byte offset + 1-byte format + 3-byte ref + 1-byte ref_format
-    //   Offsets are ABSOLUTE file positions (not relative)
-
-    if (data.size() < 14) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "SHP TD header too small"));
-    }
+    if (data.size() < 14)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "SHP TD"));
 
     const uint8_t* p = data.data();
     uint32_t file_size = static_cast<uint32_t>(data.size());
 
-    // Read header fields
     impl.info.format = ShpFormat::TD;
     uint16_t frame_count = read_u16(p + 0);
     impl.info.max_width = read_u16(p + 6);
@@ -54,17 +76,14 @@ static Result<void> parse_shp_td(ShpReaderImpl& impl,
     impl.info.delta_buffer_size = read_u16(p + 10);
     impl.info.file_size = file_size;
 
-    if (frame_count == 0) {
+    if (frame_count == 0)
         return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "SHP has no frames"));
-    }
+            make_error(ErrorCode::CorruptHeader, "no frames"));
 
-    // Check we have enough data for the frame table
     size_t table_size = static_cast<size_t>(frame_count) * 8;
-    if (data.size() < 14 + table_size) {
+    if (data.size() < 14 + table_size)
         return std::unexpected(
-            make_error(ErrorCode::CorruptIndex, "SHP frame table truncated"));
-    }
+            make_error(ErrorCode::CorruptIndex, "SHP table"));
 
     impl.info.frame_count = frame_count;
     impl.frames.reserve(frame_count);
@@ -72,54 +91,19 @@ static Result<void> parse_shp_td(ShpReaderImpl& impl,
 
     for (uint16_t i = 0; i < frame_count; ++i) {
         const uint8_t* entry = table + i * 8;
+        auto frame = parse_td_entry(
+            entry, impl.info.max_width, impl.info.max_height);
 
-        ShpFrameInfo frame{};
-        frame.width = impl.info.max_width;
-        frame.height = impl.info.max_height;
-        frame.offset_x = 0;
-        frame.offset_y = 0;
-
-        // 24-bit ABSOLUTE offset + 8-bit format
-        uint32_t abs_offset = entry[0] | (entry[1] << 8) | (entry[2] << 16);
-        frame.data_offset = abs_offset;
-        frame.format = entry[3];
-
-        // 24-bit ref offset + 8-bit ref format (for XOR frames)
-        uint32_t ref_offset = entry[4] | (entry[5] << 8) | (entry[6] << 16);
-        frame.ref_offset = ref_offset;
-
-        // Calculate size: use next entry's offset or end of file
-        if (i + 1 < frame_count) {
-            const uint8_t* next_entry = table + (i + 1) * 8;
-            uint32_t next_abs_offset = next_entry[0] | (next_entry[1] << 8) |
-                                       (next_entry[2] << 16);
-            if (next_abs_offset > abs_offset) {
-                frame.data_size = next_abs_offset - abs_offset;
-            } else {
-                // Next frame might reference same or earlier offset (XOR chains)
-                // Just set a reasonable max size
-                frame.data_size = file_size - abs_offset;
-            }
-        } else {
-            // Last frame: size to end of file
-            frame.data_size = file_size - abs_offset;
-        }
+        uint32_t next_off = (i + 1 < frame_count)
+            ? read_u24(table + (i + 1) * 8) : file_size;
+        frame.data_size = calc_frame_size(
+            frame.data_offset, next_off, file_size);
 
         impl.frames.push_back(frame);
-
-        // Count frame types
-        if (frame.format & 0x80) {
-            impl.info.lcw_frames++;
-        } else if (frame.format & 0x40 || frame.format & 0x20) {
-            impl.info.xor_frames++;
-        } else {
-            impl.info.lcw_frames++;  // Raw frames count as base frames
-        }
+        count_td_frame_type(impl.info, frame.format);
     }
 
-    // Store data for later decoding
     impl.data.assign(data.begin(), data.end());
-
     return {};
 }
 
@@ -138,7 +122,8 @@ static Result<std::vector<uint8_t>> rle_zero_decompress(
             // Run of zeros
             if (pos >= src.size()) break;
             uint8_t count = src[pos++];
-            for (uint8_t i = 0; i < count && output.size() < expected_size; ++i) {
+            size_t expected = expected_size;
+            for (uint8_t i = 0; i < count && output.size() < expected; ++i) {
                 output.push_back(0);
             }
         } else {
@@ -155,104 +140,70 @@ static Result<std::vector<uint8_t>> rle_zero_decompress(
     return output;
 }
 
+// Parse a single TS frame entry (24 bytes)
+static ShpFrameInfo parse_ts_entry(const uint8_t* entry) {
+    ShpFrameInfo frame{};
+    frame.data_offset = read_u32(entry + 0);
+    frame.offset_x = static_cast<int16_t>(read_u16(entry + 16));
+    frame.offset_y = static_cast<int16_t>(read_u16(entry + 18));
+    frame.width = read_u16(entry + 20);
+    frame.height = read_u16(entry + 22);
+    frame.format = 0x01;  // TS RLE-Zero format
+    frame.ref_offset = 0;
+    return frame;
+}
+
+// Calculate TS frame size from next offset or file end
+static uint32_t calc_ts_frame_size(
+    uint32_t offset, uint32_t next_off, size_t end)
+{
+    if (next_off > offset) return next_off - offset;
+    if (offset < end) return static_cast<uint32_t>(end) - offset;
+    return 0;
+}
+
 static Result<void> parse_shp_ts(ShpReaderImpl& impl,
                                   std::span<const uint8_t> data) {
-    // TS/RA2 SHP header (8 bytes):
-    // Offset  Size  Description
-    // 0       2     Zero (0x0000) - format identifier
-    // 2       2     Width
-    // 4       2     Height
-    // 6       2     Frame count
-    //
-    // Followed by frame entries (24 bytes each):
-    // Offset  Size  Description
-    // 0       4     File offset to frame data
-    // 4       4     Unknown (often 0)
-    // 8       4     Unknown
-    // 12      4     Unknown
-    // 16      2     X offset
-    // 18      2     Y offset
-    // 20      2     Frame width
-    // 22      2     Frame height
-
-    if (data.size() < 8) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "SHP TS header too small"));
-    }
+    if (data.size() < 8)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "SHP TS"));
 
     const uint8_t* p = data.data();
-
-    // First 2 bytes should be 0x0000 (already checked in parse_shp)
     uint16_t width = read_u16(p + 2);
     uint16_t height = read_u16(p + 4);
     uint16_t frame_count = read_u16(p + 6);
 
-    if (frame_count == 0) {
+    if (frame_count == 0)
         return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "SHP TS has no frames"));
-    }
+            make_error(ErrorCode::CorruptHeader, "no frames"));
 
     impl.info.format = ShpFormat::TS;
     impl.info.frame_count = frame_count;
     impl.info.max_width = width;
     impl.info.max_height = height;
-    impl.info.delta_buffer_size = width * height;  // Each frame is independent
+    impl.info.delta_buffer_size = width * height;
     impl.info.file_size = static_cast<uint32_t>(data.size());
 
-    // Frame entries start at offset 8
-    size_t entry_size = 24;
-    size_t table_offset = 8;
-    size_t table_size = frame_count * entry_size;
-
-    if (data.size() < table_offset + table_size) {
-        return std::unexpected(
-            make_error(ErrorCode::CorruptIndex, "SHP TS frame table truncated"));
-    }
+    constexpr size_t entry_size = 24;
+    if (data.size() < 8 + frame_count * entry_size)
+        return std::unexpected(make_error(ErrorCode::CorruptIndex, "TS table"));
 
     impl.frames.reserve(frame_count);
-    const uint8_t* table = p + table_offset;
+    const uint8_t* table = p + 8;
 
     for (uint16_t i = 0; i < frame_count; ++i) {
         const uint8_t* entry = table + i * entry_size;
+        auto frame = parse_ts_entry(entry);
 
-        ShpFrameInfo frame{};
-        frame.data_offset = read_u32(entry + 0);
-        // entry[4-15] are unknown/reserved
-        frame.offset_x = static_cast<int16_t>(read_u16(entry + 16));
-        frame.offset_y = static_cast<int16_t>(read_u16(entry + 18));
-        frame.width = read_u16(entry + 20);
-        frame.height = read_u16(entry + 22);
-
-        // TS frames use RLE-Zero compression, flag it
-        frame.format = 0x01;  // Use 0x01 to indicate TS RLE-Zero format
-        frame.ref_offset = 0;
-
-        // Calculate size from next frame offset or end of file
-        if (i + 1 < frame_count) {
-            const uint8_t* next_entry = table + (i + 1) * entry_size;
-            uint32_t next_offset = read_u32(next_entry);
-            // Handle case where next offset is 0 (empty frame)
-            if (next_offset > frame.data_offset) {
-                frame.data_size = next_offset - frame.data_offset;
-            } else {
-                frame.data_size = 0;
-            }
-        } else {
-            // Last frame - size to end of file
-            if (frame.data_offset < data.size()) {
-                frame.data_size = static_cast<uint32_t>(data.size()) - frame.data_offset;
-            } else {
-                frame.data_size = 0;
-            }
-        }
+        uint32_t next_off = (i + 1 < frame_count)
+            ? read_u32(table + (i + 1) * entry_size) : 0;
+        frame.data_size = calc_ts_frame_size(
+            frame.data_offset, next_off, data.size());
 
         impl.frames.push_back(frame);
-        impl.info.lcw_frames++;  // Count as base frames (no XOR delta in TS)
+        impl.info.lcw_frames++;
     }
 
-    // Store data for later decoding
     impl.data.assign(data.begin(), data.end());
-
     return {};
 }
 
@@ -290,121 +241,98 @@ Result<std::unique_ptr<ShpReader>> ShpReader::open(
     return reader;
 }
 
+// Decode TS frame (RLE-Zero)
+static Result<std::vector<uint8_t>> decode_ts_frame(
+    std::span<const uint8_t> data, size_t frame_size)
+{
+    return rle_zero_decompress(data, frame_size);
+}
+
+// Decode LCW base frame
+static Result<std::vector<uint8_t>> decode_lcw_frame(
+    std::span<const uint8_t> data, size_t frame_size)
+{
+    auto decomp = lcw_decompress(data, frame_size);
+    if (!decomp) return std::unexpected(decomp.error());
+    if (decomp->size() < frame_size) decomp->resize(frame_size, 0);
+    return decomp;
+}
+
+// Decode Format40 XOR delta frame
+static Result<std::vector<uint8_t>> decode_xor_frame(
+    std::span<const uint8_t> data, const std::vector<uint8_t>& ref)
+{
+    auto output = ref;
+    auto r = format40_decompress(data, std::span(output));
+    if (!r) return std::unexpected(r.error());
+    return output;
+}
+
+// Decode raw frame (copy)
+static std::vector<uint8_t> decode_raw_frame(
+    std::span<const uint8_t> data, size_t frame_size)
+{
+    std::vector<uint8_t> output(frame_size, 0);
+    std::memcpy(output.data(), data.data(), std::min(data.size(), frame_size));
+    return output;
+}
+
+// Decode TD/RA frame based on format flags
+static Result<std::vector<uint8_t>> decode_td_frame(
+    std::span<const uint8_t> data, size_t frame_size,
+    uint8_t format, std::vector<uint8_t>& delta)
+{
+    bool is_first = delta.empty();
+
+    if (format & 0x80 || (format == 0x00 && is_first))
+        return decode_lcw_frame(data, frame_size);
+
+    if ((format & 0x40) || (format & 0x20) || (format == 0x00 && !is_first))
+        return decode_xor_frame(data, delta);
+
+    return decode_raw_frame(data, frame_size);
+}
+
 Result<std::vector<uint8_t>> ShpReader::decode_frame(
     size_t frame_index,
     std::vector<uint8_t>& delta_buffer) const
 {
-    if (frame_index >= impl_->frames.size()) {
-        return std::unexpected(
-            make_error(ErrorCode::InvalidKey, "Frame index out of range"));
-    }
+    if (frame_index >= impl_->frames.size())
+        return std::unexpected(make_error(ErrorCode::InvalidKey, "frame idx"));
 
     const auto& frame = impl_->frames[frame_index];
     const auto& info = impl_->info;
 
-    // For TS format, use per-frame dimensions; for TD, use max dimensions
-    size_t frame_width = (info.format == ShpFormat::TS) ? frame.width : info.max_width;
-    size_t frame_height = (info.format == ShpFormat::TS) ? frame.height : info.max_height;
-    size_t frame_size = frame_width * frame_height;
+    size_t w = (info.format == ShpFormat::TS) ? frame.width : info.max_width;
+    size_t h = (info.format == ShpFormat::TS) ? frame.height : info.max_height;
+    size_t frame_size = w * h;
 
-    // Handle empty frames (TS can have frames with 0 dimensions)
-    if (frame_size == 0 || frame.data_size == 0) {
+    if (frame_size == 0 || frame.data_size == 0)
         return std::vector<uint8_t>();
-    }
 
-    // For TD format, ensure delta buffer is properly sized
     if (info.format == ShpFormat::TD) {
-        size_t td_frame_size = static_cast<size_t>(info.max_width) * info.max_height;
-        if (delta_buffer.size() != td_frame_size) {
-            delta_buffer.resize(td_frame_size, 0);
-        }
+        size_t td_size = static_cast<size_t>(info.max_width) * info.max_height;
+        if (delta_buffer.size() != td_size) delta_buffer.resize(td_size, 0);
     }
 
-    std::vector<uint8_t> output(frame_size, 0);
+    if (frame.data_offset + frame.data_size > impl_->data.size())
+        return std::unexpected(make_error(ErrorCode::UnexpectedEof, "frame"));
 
-    // Get frame data
-    if (frame.data_offset + frame.data_size > impl_->data.size()) {
-        return std::unexpected(
-            make_error(ErrorCode::UnexpectedEof, "Frame data out of bounds"));
-    }
+    std::span<const uint8_t> data(impl_->data.data() + frame.data_offset,
+                                   frame.data_size);
 
-    std::span<const uint8_t> frame_data(
-        impl_->data.data() + frame.data_offset,
-        frame.data_size);
+    Result<std::vector<uint8_t>> result;
+    if (info.format == ShpFormat::TS)
+        result = decode_ts_frame(data, frame_size);
+    else
+        result = decode_td_frame(data, frame_size, frame.format, delta_buffer);
 
-    if (info.format == ShpFormat::TS) {
-        // TS/RA2 format: RLE-Zero compression
-        auto decomp = rle_zero_decompress(frame_data, frame_size);
-        if (!decomp) {
-            return std::unexpected(decomp.error());
-        }
-        output = std::move(*decomp);
-    }
-    else {
-        // TD/RA format: LCW or Format40
-        uint8_t format = frame.format;
+    if (!result) return result;
 
-        // Format flags:
-        // 0x80 = LCW compressed base frame
-        // 0x40 = XOR delta against reference frame (Format40)
-        // 0x20 = XOR chain from previous frame (Format40)
-        // 0x00 = Depends on context:
-        //   - First frame or if delta_buffer is empty: LCW compressed
-        //   - Otherwise: XOR delta against previous frame (Format40)
+    if (info.format == ShpFormat::TD)
+        delta_buffer = *result;
 
-        bool is_first_frame = delta_buffer.empty();
-
-        if (format & 0x80) {
-            // LCW compressed base frame
-            auto decomp = lcw_decompress(frame_data, frame_size);
-            if (!decomp) {
-                return std::unexpected(decomp.error());
-            }
-            output = std::move(*decomp);
-            if (output.size() < frame_size) {
-                output.resize(frame_size, 0);
-            }
-        }
-        else if ((format & 0x40) || (format == 0x00 && !is_first_frame)) {
-            // XOR delta against reference frame (Format40 encoded)
-            // delta_buffer should already contain the reference frame
-            output = delta_buffer;
-            auto fmt40_result = format40_decompress(frame_data, std::span(output));
-            if (!fmt40_result) {
-                return std::unexpected(fmt40_result.error());
-            }
-        }
-        else if (format & 0x20) {
-            // XOR delta against previous frame (Format40 encoded)
-            // delta_buffer contains previous frame
-            output = delta_buffer;
-            auto fmt40_result = format40_decompress(frame_data, std::span(output));
-            if (!fmt40_result) {
-                return std::unexpected(fmt40_result.error());
-            }
-        }
-        else if (format == 0x00 && is_first_frame) {
-            // First frame with format 0x00 = LCW compressed base frame
-            auto decomp = lcw_decompress(frame_data, frame_size);
-            if (!decomp) {
-                return std::unexpected(decomp.error());
-            }
-            output = std::move(*decomp);
-            if (output.size() < frame_size) {
-                output.resize(frame_size, 0);
-            }
-        }
-        else {
-            // Unknown format - treat as raw
-            size_t copy_len = std::min(frame_data.size(), frame_size);
-            std::memcpy(output.data(), frame_data.data(), copy_len);
-        }
-
-        // Update delta buffer for next frame (TD format only)
-        delta_buffer = output;
-    }
-
-    return output;
+    return result;
 }
 
 Result<std::vector<std::vector<uint8_t>>> ShpReader::decode_all_frames() const

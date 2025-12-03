@@ -69,11 +69,16 @@ class TestAudJsonFields:
         data = json.loads(result.stdout_text)
 
         # Required fields per spec
-        required = ["sample_rate", "channels", "bits", "codec", "compressed_size",
-                    "uncompressed_size", "duration"]
+        required = [
+            "sample_rate", "channels", "bits", "codec",
+            "compressed_size", "uncompressed_size", "duration"
+        ]
         for field in required:
-            assert field in data or field.replace("_", "") in str(data).lower(), \
-                f"Missing field: {field}"
+            field_present = (
+                field in data or
+                field.replace("_", "") in str(data).lower()
+            )
+            assert field_present, f"Missing field: {field}"
 
     def test_sample_rate_type(self, aud_tool, testdata_aud_files, run):
         """Test sample_rate is integer."""
@@ -95,7 +100,10 @@ class TestAudJsonFields:
             pytest.skip("JSON output not implemented")
         data = json.loads(result.stdout_text)
         codec = data.get("codec") or data.get("Codec")
-        valid_codecs = ["westwood_adpcm", "ima_adpcm", "WestwoodADPCM", "IMA_ADPCM"]
+        valid_codecs = [
+            "westwood_adpcm", "ima_adpcm",
+            "WestwoodADPCM", "IMA_ADPCM"
+        ]
         assert codec in valid_codecs or "adpcm" in str(codec).lower()
 
 
@@ -114,8 +122,11 @@ class TestShpJsonFields:
         # Required fields
         required = ["frames", "width", "height", "format"]
         for field in required:
-            assert field in data or field.replace("_", "") in str(data).lower(), \
-                f"Missing field: {field}"
+            field_present = (
+                field in data or
+                field.replace("_", "") in str(data).lower()
+            )
+            assert field_present, f"Missing field: {field}"
 
     def test_frames_is_integer(self, shp_tool, testdata_shp_files, run):
         """Test frames count is integer."""
@@ -125,7 +136,10 @@ class TestShpJsonFields:
         if result.returncode != 0:
             pytest.skip("JSON output not implemented")
         data = json.loads(result.stdout_text)
-        frames = data.get("frames") or data.get("Frames") or data.get("frame_count")
+        frames = (
+            data.get("frames") or data.get("Frames") or
+            data.get("frame_count")
+        )
         assert isinstance(frames, int)
         assert frames > 0
 
@@ -145,8 +159,11 @@ class TestPalJsonFields:
         # Required fields
         required = ["format", "colors", "bit_depth"]
         for field in required:
-            assert field in data or field.replace("_", "") in str(data).lower(), \
-                f"Missing field: {field}"
+            field_present = (
+                field in data or
+                field.replace("_", "") in str(data).lower()
+            )
+            assert field_present, f"Missing field: {field}"
 
     def test_colors_is_256(self, pal_tool, testdata_pal_files, run):
         """Test palette has 256 colors."""
@@ -156,7 +173,10 @@ class TestPalJsonFields:
         if result.returncode != 0:
             pytest.skip("JSON output not implemented")
         data = json.loads(result.stdout_text)
-        colors = data.get("colors") or data.get("Colors") or data.get("color_count")
+        colors = (
+            data.get("colors") or data.get("Colors") or
+            data.get("color_count")
+        )
         assert colors == 256
 
 
@@ -230,7 +250,10 @@ class TestJsonNaming:
         # Check for consistent naming
         keys = list(data.keys())
         has_snake = any("_" in k for k in keys)
-        has_camel = any(k[0].islower() and any(c.isupper() for c in k[1:]) for k in keys)
+        has_camel = any(
+            k[0].islower() and any(c.isupper() for c in k[1:])
+            for k in keys
+        )
         # Should not have both (unless intentional)
         # This is a soft check - some tools may use different conventions
 

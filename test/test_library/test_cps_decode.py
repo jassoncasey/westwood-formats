@@ -40,7 +40,10 @@ class TestCpsHeaderParsing:
         result = run(cps_tool, "info", testdata_cps_files[0])
         result.assert_success()
         # Should mention compression
-        assert "compress" in result.stdout_text.lower() or "lcw" in result.stdout_text.lower()
+        assert (
+            "compress" in result.stdout_text.lower()
+            or "lcw" in result.stdout_text.lower()
+        )
 
     def test_uncompressed_size(self, cps_tool, testdata_cps_files, run):
         """Test UncompSize is 64000 (320*200)."""
@@ -163,7 +166,9 @@ class TestCpsImageData:
             pytest.skip("No CPS files in testdata")
         # Export to PNG verifies decompression works
         png_file = temp_dir / "output.png"
-        result = run(cps_tool, "export", testdata_cps_files[0], "-o", str(png_file))
+        result = run(
+            cps_tool, "export", testdata_cps_files[0], "-o", str(png_file)
+        )
         result.assert_success()
         assert png_file.exists()
         data = png_file.read_bytes()

@@ -43,7 +43,8 @@ Result<std::vector<uint8_t>> load_stdin() {
         size_t old_size = data.size();
         data.resize(old_size + chunk_size);
 
-        std::cin.read(reinterpret_cast<char*>(data.data() + old_size), chunk_size);
+        char* dst = reinterpret_cast<char*>(data.data() + old_size);
+        std::cin.read(dst, chunk_size);
         size_t bytes_read = static_cast<size_t>(std::cin.gcount());
 
         data.resize(old_size + bytes_read);

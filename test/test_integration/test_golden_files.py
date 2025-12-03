@@ -14,7 +14,9 @@ from pathlib import Path
 class TestAudioGoldenFiles:
     """Test audio output against golden files."""
 
-    def test_aud_to_wav_matches_golden(self, aud_tool, testdata_aud_files, golden_dir, run, temp_dir):
+    def test_aud_to_wav_matches_golden(
+        self, aud_tool, testdata_aud_files, golden_dir, run, temp_dir
+    ):
         """Test AUD export matches golden WAV."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -28,7 +30,9 @@ class TestAudioGoldenFiles:
 
         # Export
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -43,8 +47,10 @@ class TestAudioGoldenFiles:
 class TestImageGoldenFiles:
     """Test image output against golden files."""
 
-    def test_shp_to_png_matches_golden(self, shp_tool, testdata_shp_files, testdata_pal_files,
-                                        golden_dir, run, temp_dir):
+    def test_shp_to_png_matches_golden(
+        self, shp_tool, testdata_shp_files, testdata_pal_files,
+        golden_dir, run, temp_dir
+    ):
         """Test SHP export matches golden PNG."""
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
@@ -74,7 +80,9 @@ class TestImageGoldenFiles:
         # Simple comparison - could be enhanced to ignore non-essential chunks
         assert actual == expected, "PNG mismatch"
 
-    def test_pal_swatch_matches_golden(self, pal_tool, testdata_pal_files, golden_dir, run, temp_dir):
+    def test_pal_swatch_matches_golden(
+        self, pal_tool, testdata_pal_files, golden_dir, run, temp_dir
+    ):
         """Test PAL swatch export matches golden."""
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
@@ -86,7 +94,9 @@ class TestImageGoldenFiles:
             pytest.skip(f"No golden file: {golden_swatch}")
 
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -98,7 +108,9 @@ class TestImageGoldenFiles:
 class TestJsonGoldenFiles:
     """Test JSON output against golden files."""
 
-    def test_aud_info_json_matches_golden(self, aud_tool, testdata_aud_files, golden_dir, run):
+    def test_aud_info_json_matches_golden(
+        self, aud_tool, testdata_aud_files, golden_dir, run
+    ):
         """Test AUD info JSON matches golden."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -124,7 +136,9 @@ class TestGoldenFileGeneration:
     """Helpers for generating golden files."""
 
     @pytest.mark.skip(reason="Golden file generation - run manually")
-    def test_generate_aud_golden(self, aud_tool, testdata_aud_files, golden_dir, run):
+    def test_generate_aud_golden(
+        self, aud_tool, testdata_aud_files, golden_dir, run
+    ):
         """Generate golden WAV files from AUD."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -139,7 +153,9 @@ class TestGoldenFileGeneration:
                 print(f"Generated: {out_file}")
 
     @pytest.mark.skip(reason="Golden file generation - run manually")
-    def test_generate_info_golden(self, aud_tool, testdata_aud_files, golden_dir, run):
+    def test_generate_info_golden(
+        self, aud_tool, testdata_aud_files, golden_dir, run
+    ):
         """Generate golden JSON info files."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
@@ -158,7 +174,9 @@ class TestGoldenFileGeneration:
 class TestRegressionPrevention:
     """Tests to prevent regressions in specific scenarios."""
 
-    def test_6bit_palette_conversion(self, pal_tool, testdata_pal_files, run, temp_dir):
+    def test_6bit_palette_conversion(
+        self, pal_tool, testdata_pal_files, run, temp_dir
+    ):
         """Test 6-bit to 8-bit color conversion is correct."""
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
@@ -168,7 +186,9 @@ class TestRegressionPrevention:
 
         # Export swatch
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -180,7 +200,9 @@ class TestRegressionPrevention:
         assert width == 512
         assert height == 512
 
-    def test_index0_transparency(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_index0_transparency(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
         """Test palette index 0 produces transparency."""
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
@@ -201,13 +223,17 @@ class TestRegressionPrevention:
         color_type = data[25]
         assert color_type == 6, "Should be RGBA for transparency support"
 
-    def test_wav_16bit_signed(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_wav_16bit_signed(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test WAV output is 16-bit signed PCM."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
 
         out_file = temp_dir / "test.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 

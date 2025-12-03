@@ -57,18 +57,24 @@ class TestPalToolExport:
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_export_swatch_dimensions(self, pal_tool, testdata_pal_files, run, temp_dir):
+    def test_export_swatch_dimensions(
+        self, pal_tool, testdata_pal_files, run, temp_dir
+    ):
         """Test swatch is 512x512."""
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         import struct
         out_file = temp_dir / "swatch.png"
-        result = run(pal_tool, "export", testdata_pal_files[0], "-o", str(out_file))
+        result = run(
+            pal_tool, "export", testdata_pal_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         data = out_file.read_bytes()

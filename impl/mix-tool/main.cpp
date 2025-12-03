@@ -24,6 +24,7 @@ static void print_usage() {
               << "    -h, --help          Show help message\n"
               << "    -V, --version       Show version\n"
               << "    -v, --verbose       Verbose output\n"
+              << "    -q, --quiet         Suppress non-essential output\n"
               << "\n"
               << "Names file format:\n"
               << "    One filename per line. Comments start with #.\n"
@@ -68,7 +69,8 @@ static bool is_mix_data(const std::vector<uint8_t>& data) {
     if (first_word >= 1 && first_word <= 4095) {
         if (data.size() < 6) return false;
         uint32_t body_size = data[2] | (uint32_t(data[3]) << 8) |
-                             (uint32_t(data[4]) << 16) | (uint32_t(data[5]) << 24);
+                         (uint32_t(data[4]) << 16) |
+                         (uint32_t(data[5]) << 24);
         size_t header_size = 6 + (size_t(first_word) * 12);
 
         // Strict check: total must match data size closely
@@ -124,7 +126,8 @@ static std::vector<std::string> load_names(const std::string& path) {
     std::vector<std::string> names;
     std::ifstream file(path);
     if (!file) {
-        std::cerr << "mix-tool: warning: cannot open names file: " << path << "\n";
+        std::cerr << "mix-tool: warning: cannot open names file: "
+                  << path << "\n";
         return names;
     }
 
@@ -305,7 +308,8 @@ static void print_entry_tree(const wwd::MixEntry& entry,
                 }
 
                 // Build new prefix for children
-                std::string child_prefix = prefix + (is_last ? "    " : "│   ");
+                std::string suf = (is_last ? "    " : "│   ");
+                std::string child_prefix = prefix + suf;
                 list_recursive(*nested.value(), names, depth + 1,
                                child_prefix, false);
                 return;
@@ -354,7 +358,7 @@ static int cmd_list(int argc, char* argv[], bool verbose) {
                       << "\n"
                       << "Options:\n"
                       << "    -n, --names <file>  Load filename database\n"
-                      << "    -r, --recursive     Recurse into nested MIX files\n"
+                      << "    -r, --recursive     Recurse nested MIX files\n"
                       << "    -t, --tree          Tree view (implied by -r)\n"
                       << "\n"
                       << "Use '-' to read from stdin.\n";
@@ -371,7 +375,9 @@ static int cmd_list(int argc, char* argv[], bool verbose) {
             names_path = argv[++i];
             continue;
         }
-        if (std::strcmp(arg, "-r") == 0 || std::strcmp(arg, "--recursive") == 0) {
+        bool is_r = std::strcmp(arg, "-r") == 0;
+        is_r = is_r || std::strcmp(arg, "--recursive") == 0;
+        if (is_r) {
             recursive = true;
             tree_mode = true;  // Recursive implies tree mode
             continue;
@@ -425,7 +431,8 @@ static int cmd_list(int argc, char* argv[], bool verbose) {
     if (!names_path.empty()) {
         names = load_names(names_path);
         if (verbose) {
-            std::cerr << "Loaded " << names.size() << " names from " << names_path << "\n";
+            std::cerr << "Loaded " << names.size() << " names from "
+                      << names_path << "\n";
         }
         if (!names.empty()) {
             reader.resolve_names(names);
@@ -435,7 +442,8 @@ static int cmd_list(int argc, char* argv[], bool verbose) {
             for (const auto& e : reader.entries()) {
                 if (!e.name.empty()) ++resolved;
             }
-            std::cerr << "Resolved " << resolved << " / " << reader.entries().size() << " entries\n";
+            std::cerr << "Resolved " << resolved << " / "
+                      << reader.entries().size() << " entries\n";
         }
     }
 
@@ -525,16 +533,19 @@ static int cmd_extract(int argc, char* argv[], bool verbose) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: mix-tool extract [--names <file>] [--output <dir>] <file.mix> [files...]\n"
+            std::cerr << "Usage: mix-tool extract [options] <file.mix>"
+                      << " [files...]\n"
                       << "\n"
                       << "Extract files from a MIX archive.\n"
                       << "\n"
                       << "If no files are specified, all files are extracted.\n"
-                      << "Files can be specified by name (if names database loaded) or by hex hash (0x...).\n"
+                      << "Files can be specified by name (if names loaded)"
+                      << " or by hex hash (0x...).\n"
                       << "\n"
                       << "Use '-' to read from stdin.\n"
                       << "\n"
-                      << "Note: Encrypted MIX files must be decrypted first with blowfish-tool.\n";
+                      << "Note: Encrypted MIX files must be decrypted "
+                      << "first with blowfish-tool.\n";
             return 0;
         }
         if (std::strcmp(arg, "-v") == 0 || std::strcmp(arg, "--verbose") == 0) {
@@ -603,7 +614,8 @@ static int cmd_extract(int argc, char* argv[], bool verbose) {
     if (!names_path.empty()) {
         auto names = load_names(names_path);
         if (verbose) {
-            std::cerr << "Loaded " << names.size() << " names from " << names_path << "\n";
+            std::cerr << "Loaded " << names.size() << " names from "
+                      << names_path << "\n";
         }
         if (!names.empty()) {
             reader.resolve_names(names);
@@ -753,7 +765,9 @@ int main(int argc, char* argv[]) {
     // Check for verbose flag
     bool verbose = false;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "-v") == 0 || std::strcmp(argv[i], "--verbose") == 0) {
+        bool is_v = std::strcmp(argv[i], "-v") == 0;
+        is_v = is_v || std::strcmp(argv[i], "--verbose") == 0;
+        if (is_v) {
             verbose = true;
             break;
         }

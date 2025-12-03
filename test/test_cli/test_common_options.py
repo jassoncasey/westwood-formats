@@ -38,7 +38,10 @@ class TestExitCodes:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         # Try to write to unwritable location
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", "/nonexistent/dir/out.wav")
+        result = run(
+            aud_tool, "export", testdata_aud_files[0],
+            "-o", "/nonexistent/dir/out.wav"
+        )
         assert result.returncode == 3
 
 
@@ -49,13 +52,19 @@ class TestHelpOption:
         """Test --help shows usage."""
         result = run(aud_tool, "--help")
         assert result.returncode == 0
-        assert "usage" in result.stdout_text.lower() or "Usage" in result.stdout_text
+        assert (
+            "usage" in result.stdout_text.lower()
+            or "Usage" in result.stdout_text
+        )
 
     def test_help_short_form(self, aud_tool, run):
         """Test -h shows usage."""
         result = run(aud_tool, "-h")
         assert result.returncode == 0
-        assert "usage" in result.stdout_text.lower() or "Usage" in result.stdout_text
+        assert (
+            "usage" in result.stdout_text.lower()
+            or "Usage" in result.stdout_text
+        )
 
     def test_help_lists_commands(self, aud_tool, run):
         """Test help lists available commands."""
@@ -89,17 +98,24 @@ class TestOutputOption:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "output.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
 
-    def test_output_long_form(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_output_long_form(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test --output works same as -o."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "output.wav"
-        result = run(aud_tool, "export", testdata_aud_files[0], "--output", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0],
+            "--output", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         assert out_file.exists()
@@ -108,38 +124,52 @@ class TestOutputOption:
 class TestForceOption:
     """Test --force overwrite option."""
 
-    def test_no_force_refuses_overwrite(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_no_force_refuses_overwrite(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test refuses to overwrite without --force."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "existing.wav"
         out_file.write_bytes(b"existing data")
 
-        result = run(aud_tool, "export", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", testdata_aud_files[0], "-o", str(out_file)
+        )
         # Should fail or warn about existing file
         assert result.returncode != 0 or "exist" in result.stderr_text.lower()
 
-    def test_force_allows_overwrite(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_force_allows_overwrite(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test --force allows overwriting."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "existing.wav"
         out_file.write_bytes(b"existing data")
 
-        result = run(aud_tool, "export", "--force", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", "--force", testdata_aud_files[0],
+            "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
         # File should be overwritten (not still original content)
         assert out_file.read_bytes() != b"existing data"
 
-    def test_force_short_form(self, aud_tool, testdata_aud_files, run, temp_dir):
+    def test_force_short_form(
+        self, aud_tool, testdata_aud_files, run, temp_dir
+    ):
         """Test -f works same as --force."""
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         out_file = temp_dir / "existing.wav"
         out_file.write_bytes(b"existing data")
 
-        result = run(aud_tool, "export", "-f", testdata_aud_files[0], "-o", str(out_file))
+        result = run(
+            aud_tool, "export", "-f", testdata_aud_files[0],
+            "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -205,7 +235,9 @@ class TestVerboseOption:
         if not testdata_aud_files:
             pytest.skip("No AUD files in testdata")
         result_normal = run(aud_tool, "info", testdata_aud_files[0])
-        result_verbose = run(aud_tool, "info", "--verbose", testdata_aud_files[0])
+        result_verbose = run(
+            aud_tool, "info", "--verbose", testdata_aud_files[0]
+        )
         if result_normal.returncode != 0:
             pytest.skip("Info not implemented")
         # Verbose should have at least as much output
@@ -215,8 +247,10 @@ class TestVerboseOption:
 class TestAllToolsHaveOptions:
     """Test all tools support common options."""
 
-    def test_all_tools_have_help(self, aud_tool, shp_tool, pal_tool, wsa_tool,
-                                  tmp_tool, fnt_tool, cps_tool, vqa_tool, run):
+    def test_all_tools_have_help(
+        self, aud_tool, shp_tool, pal_tool, wsa_tool,
+        tmp_tool, fnt_tool, cps_tool, vqa_tool, run
+    ):
         """Test all tools support --help."""
         tools = [aud_tool, shp_tool, pal_tool, wsa_tool,
                  tmp_tool, fnt_tool, cps_tool, vqa_tool]
@@ -226,8 +260,10 @@ class TestAllToolsHaveOptions:
             result = run(tool, "--help")
             assert result.returncode == 0, f"{tool} --help failed"
 
-    def test_all_tools_have_version(self, aud_tool, shp_tool, pal_tool, wsa_tool,
-                                     tmp_tool, fnt_tool, cps_tool, vqa_tool, run):
+    def test_all_tools_have_version(
+        self, aud_tool, shp_tool, pal_tool, wsa_tool,
+        tmp_tool, fnt_tool, cps_tool, vqa_tool, run
+    ):
         """Test all tools support --version."""
         tools = [aud_tool, shp_tool, pal_tool, wsa_tool,
                  tmp_tool, fnt_tool, cps_tool, vqa_tool]

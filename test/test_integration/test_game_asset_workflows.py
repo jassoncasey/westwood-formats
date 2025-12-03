@@ -15,7 +15,10 @@ from pathlib import Path
 class TestUnitAnimationWorkflow:
     """Test processing unit animation assets."""
 
-    def test_unit_shp_to_gif(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_unit_shp_to_gif(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test converting unit SHP to animated GIF."""
         if not testdata_shp_files or not testdata_pal_files:
             pytest.skip("No SHP or PAL files in testdata")
@@ -33,8 +36,10 @@ class TestUnitAnimationWorkflow:
             if frames > 1:
                 # This is an animated SHP
                 out_file = temp_dir / "animation.gif"
-                result = run(shp_tool, "export", "--gif", "-p", testdata_pal_files[0],
-                            shp_file, "-o", str(out_file))
+                result = run(
+                    shp_tool, "export", "--gif", "-p",
+                    testdata_pal_files[0], shp_file, "-o", str(out_file)
+                )
                 if result.returncode == 0:
                     assert out_file.exists()
                     return
@@ -45,7 +50,10 @@ class TestUnitAnimationWorkflow:
 class TestTerrainTileWorkflow:
     """Test processing terrain tile assets."""
 
-    def test_tmp_tileset_export(self, tmp_tool, testdata_tmp_files, testdata_pal_files, run, temp_dir):
+    def test_tmp_tileset_export(
+        self, tmp_tool, testdata_tmp_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test exporting terrain tileset."""
         if not testdata_tmp_files or not testdata_pal_files:
             pytest.skip("No TMP or PAL files in testdata")
@@ -62,7 +70,10 @@ class TestTerrainTileWorkflow:
 class TestMenuAnimationWorkflow:
     """Test processing menu/UI animation assets."""
 
-    def test_wsa_menu_animation(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_wsa_menu_animation(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test converting WSA menu animation."""
         if not testdata_wsa_files or not testdata_pal_files:
             pytest.skip("No WSA or PAL files in testdata")
@@ -79,7 +90,10 @@ class TestMenuAnimationWorkflow:
 class TestCutsceneWorkflow:
     """Test processing cutscene video assets."""
 
-    def test_vqa_full_conversion(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_vqa_full_conversion(
+        self, vqa_tool, testdata_vqa_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test full VQA to MP4 conversion."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -102,13 +116,18 @@ class TestCutsceneWorkflow:
 
         assert mp4_file.exists()
 
-    def test_vqa_audio_extraction(self, vqa_tool, testdata_vqa_files, run, temp_dir):
+    def test_vqa_audio_extraction(
+        self, vqa_tool, testdata_vqa_files, run, temp_dir
+    ):
         """Test extracting audio track from VQA."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
 
         wav_file = temp_dir / "cutscene_audio.wav"
-        result = run(vqa_tool, "export", "--wav", testdata_vqa_files[0], "-o", str(wav_file))
+        result = run(
+            vqa_tool, "export", "--wav", testdata_vqa_files[0],
+            "-o", str(wav_file)
+        )
         if result.returncode != 0:
             pytest.skip("WAV export not implemented")
 
@@ -118,14 +137,18 @@ class TestCutsceneWorkflow:
 class TestFontWorkflow:
     """Test processing font assets."""
 
-    def test_font_to_png_and_metrics(self, fnt_tool, testdata_fnt_files, run, temp_dir):
+    def test_font_to_png_and_metrics(
+        self, fnt_tool, testdata_fnt_files, run, temp_dir
+    ):
         """Test exporting font glyphs and metrics."""
         if not testdata_fnt_files:
             pytest.skip("No FNT files in testdata")
 
         # Export glyph sheet
         png_file = temp_dir / "font.png"
-        result = run(fnt_tool, "export", testdata_fnt_files[0], "-o", str(png_file))
+        result = run(
+            fnt_tool, "export", testdata_fnt_files[0], "-o", str(png_file)
+        )
         if result.returncode != 0:
             pytest.skip("FNT export not implemented")
 
@@ -143,7 +166,10 @@ class TestFontWorkflow:
 class TestSplashScreenWorkflow:
     """Test processing splash screen/title assets."""
 
-    def test_cps_fullscreen_export(self, cps_tool, testdata_cps_files, testdata_pal_files, run, temp_dir):
+    def test_cps_fullscreen_export(
+        self, cps_tool, testdata_cps_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test exporting CPS fullscreen image."""
         if not testdata_cps_files:
             pytest.skip("No CPS files in testdata")
@@ -167,7 +193,10 @@ class TestSplashScreenWorkflow:
 class TestPaletteSwapWorkflow:
     """Test using different palettes with same graphics."""
 
-    def test_shp_with_multiple_palettes(self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir):
+    def test_shp_with_multiple_palettes(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run,
+        temp_dir
+    ):
         """Test rendering same SHP with different palettes."""
         if not testdata_shp_files or len(testdata_pal_files) < 2:
             pytest.skip("Need SHP and multiple PAL files")
@@ -214,7 +243,10 @@ class TestCompleteAssetDump:
             ext = name.split(".")[-1].lower() if "." in name else ""
 
             if ext in extracted and len(extracted[ext]) < 2:
-                run(mix_tool, "extract", testdata_mix_files[0], name, "-o", str(temp_dir))
+                run(
+                    mix_tool, "extract", testdata_mix_files[0], name,
+                    "-o", str(temp_dir)
+                )
                 path = temp_dir / name
                 if path.exists():
                     extracted[ext].append(path)
@@ -224,15 +256,21 @@ class TestCompleteAssetDump:
 
         for aud_path in extracted["aud"]:
             wav_path = temp_dir / (aud_path.stem + ".wav")
-            if run(aud_tool, "export", str(aud_path), "-o", str(wav_path)).returncode == 0:
+            result = run(
+                aud_tool, "export", str(aud_path), "-o", str(wav_path)
+            )
+            if result.returncode == 0:
                 converted_count += 1
 
         # Note: SHP needs PAL, so only convert if we have both
         if extracted["pal"] and extracted["shp"]:
             for shp_path in extracted["shp"]:
                 png_path = temp_dir / (shp_path.stem + ".png")
-                if run(shp_tool, "export", "-p", str(extracted["pal"][0]),
-                       str(shp_path), "-o", str(png_path)).returncode == 0:
+                result = run(
+                    shp_tool, "export", "-p", str(extracted["pal"][0]),
+                    str(shp_path), "-o", str(png_path)
+                )
+                if result.returncode == 0:
                     converted_count += 1
 
         # Should have converted at least something

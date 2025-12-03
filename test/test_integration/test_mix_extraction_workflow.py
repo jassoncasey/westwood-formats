@@ -14,7 +14,9 @@ from pathlib import Path
 class TestMixToAudioWorkflow:
     """Test extracting and processing audio from MIX."""
 
-    def test_extract_and_decode_aud(self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir):
+    def test_extract_and_decode_aud(
+        self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir
+    ):
         """Test extracting AUD from MIX and decoding to WAV."""
         if not testdata_mix_files:
             pytest.skip("No MIX files in testdata")
@@ -45,7 +47,9 @@ class TestMixToAudioWorkflow:
 
         # Step 3: Decode to WAV
         wav_file = temp_dir / "output.wav"
-        decode_result = run(aud_tool, "export", str(extracted_aud), "-o", str(wav_file))
+        decode_result = run(
+            aud_tool, "export", str(extracted_aud), "-o", str(wav_file)
+        )
         if decode_result.returncode != 0:
             pytest.skip("AUD decode not implemented")
 
@@ -76,7 +80,10 @@ class TestMixToImageWorkflow:
 
         # Extract both
         for f in [shp_files[0], pal_files[0]]:
-            run(mix_tool, "extract", testdata_mix_files[0], f, "-o", str(temp_dir))
+            run(
+                mix_tool, "extract", testdata_mix_files[0], f,
+                "-o", str(temp_dir)
+            )
 
         shp_path = temp_dir / shp_files[0]
         pal_path = temp_dir / pal_files[0]
@@ -97,8 +104,10 @@ class TestMixToImageWorkflow:
 class TestMixToVideoWorkflow:
     """Test extracting and processing video from MIX."""
 
-    def test_extract_and_convert_vqa(self, mix_tool, vqa_tool,
-                                      testdata_mix_files, testdata_pal_files, run, temp_dir):
+    def test_extract_and_convert_vqa(
+        self, mix_tool, vqa_tool, testdata_mix_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test extracting VQA from MIX and converting to MP4."""
         if not testdata_mix_files:
             pytest.skip("No MIX files in testdata")
@@ -114,7 +123,10 @@ class TestMixToVideoWorkflow:
             pytest.skip("No VQA files in MIX")
 
         # Extract VQA
-        run(mix_tool, "extract", testdata_mix_files[0], vqa_files[0], "-o", str(temp_dir))
+        run(
+            mix_tool, "extract", testdata_mix_files[0], vqa_files[0],
+            "-o", str(temp_dir)
+        )
         vqa_path = temp_dir / vqa_files[0]
 
         if not vqa_path.exists():
@@ -134,7 +146,9 @@ class TestMixToVideoWorkflow:
 class TestNestedMixWorkflow:
     """Test processing files from nested MIX archives."""
 
-    def test_extract_from_nested_mix(self, mix_tool, testdata_mix_files, run, temp_dir):
+    def test_extract_from_nested_mix(
+        self, mix_tool, testdata_mix_files, run, temp_dir
+    ):
         """Test extracting from MIX inside MIX."""
         if not testdata_mix_files:
             pytest.skip("No MIX files in testdata")
@@ -150,7 +164,10 @@ class TestNestedMixWorkflow:
             pytest.skip("No nested MIX files")
 
         # Extract nested MIX
-        run(mix_tool, "extract", testdata_mix_files[0], nested_mix[0], "-o", str(temp_dir))
+        run(
+            mix_tool, "extract", testdata_mix_files[0], nested_mix[0],
+            "-o", str(temp_dir)
+        )
         nested_path = temp_dir / nested_mix[0]
 
         if not nested_path.exists():
@@ -164,7 +181,9 @@ class TestNestedMixWorkflow:
 class TestBatchProcessingWorkflow:
     """Test batch processing of extracted files."""
 
-    def test_batch_audio_export(self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir):
+    def test_batch_audio_export(
+        self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir
+    ):
         """Test batch exporting multiple AUD files."""
         if not testdata_mix_files:
             pytest.skip("No MIX files in testdata")
@@ -183,13 +202,18 @@ class TestBatchProcessingWorkflow:
         wav_count = 0
         for aud_name in aud_files:
             # Extract
-            run(mix_tool, "extract", testdata_mix_files[0], aud_name, "-o", str(temp_dir))
+            run(
+                mix_tool, "extract", testdata_mix_files[0], aud_name,
+                "-o", str(temp_dir)
+            )
             aud_path = temp_dir / aud_name
 
             if aud_path.exists():
                 # Convert
                 wav_path = temp_dir / (aud_path.stem + ".wav")
-                result = run(aud_tool, "export", str(aud_path), "-o", str(wav_path))
+                result = run(
+                    aud_tool, "export", str(aud_path), "-o", str(wav_path)
+                )
                 if result.returncode == 0 and wav_path.exists():
                     wav_count += 1
 
@@ -200,9 +224,12 @@ class TestBatchProcessingWorkflow:
 class TestPipelineWithStdio:
     """Test pipeline using stdin/stdout."""
 
-    def test_pipe_extract_to_decode(self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir):
+    def test_pipe_extract_to_decode(
+        self, mix_tool, aud_tool, testdata_mix_files, run, temp_dir
+    ):
         """Test piping extraction directly to decoder."""
-        # This would test: mix-tool extract MIX file - | aud-tool export - -o out.wav
+        # This would test:
+        # mix-tool extract MIX file - | aud-tool export - -o out.wav
         pytest.skip("Requires shell pipeline testing")
 
     def test_info_to_json_processing(self, aud_tool, testdata_aud_files, run):

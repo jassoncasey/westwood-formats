@@ -51,7 +51,8 @@ struct MixInfo {
 class MixReader {
 public:
     static Result<std::unique_ptr<MixReader>> open(const std::string& path);
-    static Result<std::unique_ptr<MixReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<MixReader>> open(
+        std::span<const uint8_t> data);
 
     ~MixReader();
 

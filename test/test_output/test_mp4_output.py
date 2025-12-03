@@ -22,7 +22,10 @@ class TestMp4Container:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
         data = out_file.read_bytes()
@@ -34,7 +37,10 @@ class TestMp4Container:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
         data = out_file.read_bytes()
@@ -45,7 +51,10 @@ class TestMp4Container:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
         data = out_file.read_bytes()
@@ -60,7 +69,10 @@ class TestMp4VideoCodec:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 
@@ -113,7 +125,10 @@ class TestMp4AudioCodec:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 
@@ -139,7 +154,9 @@ class TestMp4AudioCodec:
 class TestMp4Dimensions:
     """Test video dimensions match source."""
 
-    def test_width_matches_source(self, vqa_tool, testdata_vqa_files, run, temp_dir):
+    def test_width_matches_source(
+        self, vqa_tool, testdata_vqa_files, run, temp_dir
+    ):
         """Test MP4 width matches VQA width."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -152,10 +169,15 @@ class TestMp4Dimensions:
         info = json.loads(info_result.stdout_text)
         # VQA JSON has nested video.width structure
         video = info.get("video", {})
-        source_width = video.get("width") or info.get("width") or info.get("Width")
+        source_width = (
+            video.get("width") or info.get("width") or info.get("Width")
+        )
 
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 
@@ -171,7 +193,9 @@ class TestMp4Dimensions:
         except FileNotFoundError:
             pytest.skip("ffprobe not available")
 
-    def test_height_matches_source(self, vqa_tool, testdata_vqa_files, run, temp_dir):
+    def test_height_matches_source(
+        self, vqa_tool, testdata_vqa_files, run, temp_dir
+    ):
         """Test MP4 height matches VQA height."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -183,10 +207,15 @@ class TestMp4Dimensions:
         info = json.loads(info_result.stdout_text)
         # VQA JSON has nested video.height structure
         video = info.get("video", {})
-        source_height = video.get("height") or info.get("height") or info.get("Height")
+        source_height = (
+            video.get("height") or info.get("height") or info.get("Height")
+        )
 
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 
@@ -206,7 +235,9 @@ class TestMp4Dimensions:
 class TestMp4FrameRate:
     """Test video frame rate."""
 
-    def test_framerate_preserved(self, vqa_tool, testdata_vqa_files, run, temp_dir):
+    def test_framerate_preserved(
+        self, vqa_tool, testdata_vqa_files, run, temp_dir
+    ):
         """Test frame rate matches VQA frame rate."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -218,10 +249,16 @@ class TestMp4FrameRate:
         info = json.loads(info_result.stdout_text)
         # VQA JSON has nested video.frameRate structure
         video = info.get("video", {})
-        source_fps = video.get("frameRate") or info.get("frame_rate") or info.get("FrameRate") or info.get("fps")
+        source_fps = (
+            video.get("frameRate") or info.get("frame_rate") or
+            info.get("FrameRate") or info.get("fps")
+        )
 
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 
@@ -247,13 +284,18 @@ class TestMp4FrameRate:
 class TestMp4AudioSync:
     """Test audio/video synchronization."""
 
-    def test_av_duration_match(self, vqa_tool, testdata_vqa_files, run, temp_dir):
+    def test_av_duration_match(
+        self, vqa_tool, testdata_vqa_files, run, temp_dir
+    ):
         """Test audio and video have same duration."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
 
         out_file = temp_dir / "test.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("MP4 export not implemented")
 

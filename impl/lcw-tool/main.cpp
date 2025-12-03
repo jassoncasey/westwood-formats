@@ -1,5 +1,6 @@
 #include <westwood/lcw.h>
 #include <westwood/io.h>
+#include <westwood/cli.h>
 
 #include <cstring>
 #include <fstream>
@@ -24,14 +25,12 @@ static void print_usage(std::ostream& out = std::cout) {
               << "Options:\n"
               << "    -h, --help      Show help message\n"
               << "    -V, --version   Show version\n"
+              << "    -v, --verbose   Verbose output\n"
+              << "    -q, --quiet     Suppress non-essential output\n"
               << "    -o, --output    Output file path (default: stdout)\n"
-              << "    -s, --size      Expected output size (required for decompress)\n"
+              << "    -s, --size      Expected output size (required)\n"
               << "    -r, --relative  Use relative addressing mode\n"
               << "    --hex           Input is hex string instead of file\n";
-}
-
-static void print_version() {
-    std::cout << "lcw-tool " << VERSION << "\n";
 }
 
 // Parse hex string to bytes
@@ -40,7 +39,8 @@ static std::vector<uint8_t> parse_hex(const std::string& hex) {
     for (size_t i = 0; i < hex.length(); i += 2) {
         if (i + 1 >= hex.length()) break;
         std::string byte_str = hex.substr(i, 2);
-        result.push_back(static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16)));
+        auto val = static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16));
+        result.push_back(val);
     }
     return result;
 }
@@ -49,7 +49,8 @@ static std::vector<uint8_t> parse_hex(const std::string& hex) {
 static std::string to_hex(const std::vector<uint8_t>& data) {
     std::ostringstream ss;
     for (uint8_t b : data) {
-        ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(b);
+        ss << std::hex << std::setfill('0') << std::setw(2)
+           << static_cast<int>(b);
     }
     return ss.str();
 }
@@ -65,7 +66,8 @@ static int cmd_decompress(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: lcw-tool decompress [-s SIZE] [-r] [--hex] <input> [-o output]\n";
+            std::cerr << "Usage: lcw-tool decompress "
+                      << "[-s SIZE] [-r] [--hex] <input> [-o output]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -86,7 +88,9 @@ static int cmd_decompress(int argc, char* argv[]) {
             }
             continue;
         }
-        if (std::strcmp(arg, "-r") == 0 || std::strcmp(arg, "--relative") == 0) {
+        bool is_rel = std::strcmp(arg, "-r") == 0;
+        is_rel = is_rel || std::strcmp(arg, "--relative") == 0;
+        if (is_rel) {
             use_relative = true;
             continue;
         }
@@ -153,10 +157,12 @@ static int cmd_decompress(int argc, char* argv[]) {
     } else {
         std::ofstream out(output_path, std::ios::binary);
         if (!out) {
-            std::cerr << "lcw-tool: error: cannot open: " << output_path << "\n";
+            std::cerr << "lcw-tool: error: cannot open: "
+                      << output_path << "\n";
             return 3;
         }
-        out.write(reinterpret_cast<const char*>(output.data()), output.size());
+        const char* ptr = reinterpret_cast<const char*>(output.data());
+        out.write(ptr, output.size());
     }
 
     return 0;
@@ -173,8 +179,10 @@ static int cmd_format40(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: lcw-tool format40 [--hex] <delta> <buffer> [-o output]\n";
-            std::cerr << "  With --hex: lcw-tool format40 --hex <delta_hex> <buffer_hex>\n";
+            std::cerr << "Usage: lcw-tool format40 "
+                      << "[--hex] <delta> <buffer> [-o output]\n";
+            std::cerr << "  With --hex: lcw-tool format40 "
+                      << "--hex <delta_hex> <buffer_hex>\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -223,7 +231,8 @@ static int cmd_format40(int argc, char* argv[]) {
 
         auto buffer = wwd::load_file(buffer_path);
         if (!buffer) {
-            std::cerr << "lcw-tool: error: " << buffer.error().message() << "\n";
+            std::cerr << "lcw-tool: error: "
+                      << buffer.error().message() << "\n";
             return 2;
         }
         buffer_data = std::move(*buffer);
@@ -246,10 +255,12 @@ static int cmd_format40(int argc, char* argv[]) {
     } else {
         std::ofstream out(output_path, std::ios::binary);
         if (!out) {
-            std::cerr << "lcw-tool: error: cannot open: " << output_path << "\n";
+            std::cerr << "lcw-tool: error: cannot open: "
+                      << output_path << "\n";
             return 3;
         }
-        out.write(reinterpret_cast<const char*>(buffer_data.data()), buffer_data.size());
+        const char* ptr = reinterpret_cast<const char*>(buffer_data.data());
+        out.write(ptr, buffer_data.size());
     }
 
     return 0;
@@ -353,14 +364,16 @@ static const TestVector format40_tests[] = {
     },
 };
 
-static int cmd_test(int argc, char* argv[]) {
+static int cmd_test(int argc, char* argv[], bool verbose) {
     (void)argc;
     (void)argv;
 
     int passed = 0;
     int failed = 0;
 
-    std::cout << "LCW decompression tests:\n";
+    if (verbose) {
+        std::cerr << "LCW decompression tests:\n";
+    }
     for (const auto& test : lcw_tests) {
         auto input = parse_hex(test.input_hex);
         auto expected = parse_hex(test.expected_hex);
@@ -376,21 +389,25 @@ static int cmd_test(int argc, char* argv[]) {
         }
 
         if (ok) {
-            std::cout << "  PASS: " << test.name << "\n";
+            if (verbose) {
+                std::cerr << "  PASS: " << test.name << "\n";
+            }
             passed++;
         } else {
-            std::cout << "  FAIL: " << test.name << "\n";
+            std::cerr << "  FAIL: " << test.name << "\n";
             if (result) {
-                std::cout << "    expected: " << test.expected_hex << "\n";
-                std::cout << "    got:      " << to_hex(*result) << "\n";
+                std::cerr << "    expected: " << test.expected_hex << "\n";
+                std::cerr << "    got:      " << to_hex(*result) << "\n";
             } else {
-                std::cout << "    error: " << result.error().message() << "\n";
+                std::cerr << "    error: " << result.error().message() << "\n";
             }
             failed++;
         }
     }
 
-    std::cout << "\nFormat40 XOR delta tests:\n";
+    if (verbose) {
+        std::cerr << "\nFormat40 XOR delta tests:\n";
+    }
     for (const auto& test : format40_tests) {
         auto delta = parse_hex(test.input_hex);
         auto buffer = parse_hex("41424344");  // ABCD
@@ -406,21 +423,26 @@ static int cmd_test(int argc, char* argv[]) {
         }
 
         if (ok) {
-            std::cout << "  PASS: " << test.name << "\n";
+            if (verbose) {
+                std::cerr << "  PASS: " << test.name << "\n";
+            }
             passed++;
         } else {
-            std::cout << "  FAIL: " << test.name << "\n";
+            std::cerr << "  FAIL: " << test.name << "\n";
             if (result) {
-                std::cout << "    expected: " << test.expected_hex << "\n";
-                std::cout << "    got:      " << to_hex(buffer) << "\n";
+                std::cerr << "    expected: " << test.expected_hex << "\n";
+                std::cerr << "    got:      " << to_hex(buffer) << "\n";
             } else {
-                std::cout << "    error: " << result.error().message() << "\n";
+                std::cerr << "    error: " << result.error().message() << "\n";
             }
             failed++;
         }
     }
 
-    std::cout << "\nTotal: " << passed << " passed, " << failed << " failed\n";
+    if (verbose || failed > 0) {
+        std::cerr << "\nTotal: " << passed << " passed, "
+                  << failed << " failed\n";
+    }
 
     return failed > 0 ? 1 : 0;
 }
@@ -431,16 +453,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const char* cmd = argv[1];
+    if (wwd::check_help_version(argc, argv, "lcw-tool", VERSION, print_usage)) {
+        return 0;
+    }
 
-    if (std::strcmp(cmd, "-h") == 0 || std::strcmp(cmd, "--help") == 0) {
-        print_usage(std::cout);
-        return 0;
-    }
-    if (std::strcmp(cmd, "-V") == 0 || std::strcmp(cmd, "--version") == 0) {
-        print_version();
-        return 0;
-    }
+    auto flags = wwd::scan_output_flags(argc, argv);
+    const char* cmd = argv[1];
 
     if (std::strcmp(cmd, "decompress") == 0) {
         return cmd_decompress(argc - 1, argv + 1);
@@ -449,7 +467,7 @@ int main(int argc, char* argv[]) {
         return cmd_format40(argc - 1, argv + 1);
     }
     if (std::strcmp(cmd, "test") == 0) {
-        return cmd_test(argc - 1, argv + 1);
+        return cmd_test(argc - 1, argv + 1, flags.verbose);
     }
 
     std::cerr << "lcw-tool: error: unknown command '" << cmd << "'\n";

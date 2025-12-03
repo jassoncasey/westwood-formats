@@ -24,7 +24,8 @@ static void print_usage(std::ostream& out = std::cout) {
         << "Options:\n"
         << "    -h, --help      Show help message\n"
         << "    -V, --version   Show version\n"
-        << "    -v, --verbose   Verbose output\n";
+        << "    -v, --verbose   Verbose output\n"
+        << "    -q, --quiet     Suppress non-essential output\n";
 }
 
 static void print_version() {
@@ -75,11 +76,17 @@ static bool write_png_rgb(const std::string& path,
 
     // IHDR chunk
     {
+        uint8_t w3 = static_cast<uint8_t>(width >> 24);
+        uint8_t w2 = static_cast<uint8_t>(width >> 16);
+        uint8_t w1 = static_cast<uint8_t>(width >> 8);
+        uint8_t w0 = static_cast<uint8_t>(width);
+        uint8_t h3 = static_cast<uint8_t>(height >> 24);
+        uint8_t h2 = static_cast<uint8_t>(height >> 16);
+        uint8_t h1 = static_cast<uint8_t>(height >> 8);
+        uint8_t h0 = static_cast<uint8_t>(height);
         uint8_t ihdr[13] = {
-            static_cast<uint8_t>(width >> 24), static_cast<uint8_t>(width >> 16),
-            static_cast<uint8_t>(width >> 8), static_cast<uint8_t>(width),
-            static_cast<uint8_t>(height >> 24), static_cast<uint8_t>(height >> 16),
-            static_cast<uint8_t>(height >> 8), static_cast<uint8_t>(height),
+            w3, w2, w1, w0,
+            h3, h2, h1, h0,
             8,  // bit depth
             2,  // color type: RGB
             0,  // compression
@@ -122,7 +129,9 @@ static bool write_png_rgb(const std::string& path,
             zlib.push_back((block_size >> 8) & 0xFF);
             zlib.push_back(~block_size & 0xFF);
             zlib.push_back((~block_size >> 8) & 0xFF);
-            zlib.insert(zlib.end(), raw.begin() + pos, raw.begin() + pos + block_size);
+            auto blk_start = raw.begin() + pos;
+            auto blk_end = blk_start + block_size;
+            zlib.insert(zlib.end(), blk_start, blk_end);
             pos += block_size;
         }
 
@@ -144,7 +153,8 @@ static bool write_png_rgb(const std::string& path,
         std::memcpy(idat_chunk.data() + 4, zlib.data(), zlib.size());
 
         write_u32be(static_cast<uint32_t>(zlib.size()));
-        f.write(reinterpret_cast<const char*>(idat_chunk.data()), idat_chunk.size());
+        const char* idat_ptr = reinterpret_cast<const char*>(idat_chunk.data());
+        f.write(idat_ptr, idat_chunk.size());
         write_u32be(crc32(idat_chunk.data(), idat_chunk.size()));
     }
 
@@ -316,16 +326,22 @@ static int cmd_info(int argc, char* argv[], bool verbose) {
         std::cout << "    \"duration\": " << reader.duration() << ",\n";
         std::cout << "    \"codebookParts\": " << int(hdr.cb_parts) << ",\n";
         std::cout << "    \"maxBlocks\": " << hdr.max_blocks << ",\n";
-        std::cout << "    \"colors\": " << (reader.is_hicolor() ? 32768 : 256) << ",\n";
-        std::cout << "    \"hicolor\": " << (reader.is_hicolor() ? "true" : "false") << "\n";
+        int colors = reader.is_hicolor() ? 32768 : 256;
+        const char* hicolor = reader.is_hicolor() ? "true" : "false";
+        std::cout << "    \"colors\": " << colors << ",\n";
+        std::cout << "    \"hicolor\": " << hicolor << "\n";
         std::cout << "  },\n";
         std::cout << "  \"audio\": {\n";
-        std::cout << "    \"present\": " << (info.audio.has_audio ? "true" : "false");
+        const char* present = info.audio.has_audio ? "true" : "false";
+        std::cout << "    \"present\": " << present;
         if (info.audio.has_audio) {
             std::cout << ",\n";
-            std::cout << "    \"codec\": \"" << codec_name(info.audio.codec_id) << "\",\n";
-            std::cout << "    \"sampleRate\": " << info.audio.sample_rate << ",\n";
-            std::cout << "    \"channels\": " << int(info.audio.channels) << ",\n";
+            const char* cname = codec_name(info.audio.codec_id);
+            std::cout << "    \"codec\": \"" << cname << "\",\n";
+            std::cout << "    \"sampleRate\": " << info.audio.sample_rate;
+            std::cout << ",\n";
+            int ch = int(info.audio.channels);
+            std::cout << "    \"channels\": " << ch << ",\n";
             std::cout << "    \"bits\": " << int(info.audio.bits);
         }
         std::cout << "\n  },\n";
@@ -336,21 +352,26 @@ static int cmd_info(int argc, char* argv[], bool verbose) {
         std::cout << "Format: Westwood VQA v" << hdr.version << "\n";
         std::cout << "Video:\n";
         std::cout << "  Dimensions: " << hdr.width << "x" << hdr.height << "\n";
-        std::cout << "  Block size: " << int(hdr.block_w) << "x" << int(hdr.block_h) << "\n";
+        int bw = int(hdr.block_w);
+        int bh = int(hdr.block_h);
+        std::cout << "  Block size: " << bw << "x" << bh << "\n";
         std::cout << "  Frame rate: " << int(hdr.frame_rate) << " fps\n";
         std::cout << "  Frames: " << hdr.frame_count << "\n";
         std::cout << std::fixed << std::setprecision(1);
         std::cout << "  Duration: " << reader.duration() << " seconds\n";
         std::cout << "  Codebook: " << int(hdr.cb_parts) << " parts, max "
                   << hdr.max_blocks << " blocks\n";
-        std::cout << "  Colors: " << (reader.is_hicolor() ? "32768 (hicolor)" : "256 (indexed)") << "\n";
+        const char* cinfo = reader.is_hicolor() ? "32768 (hicolor)"
+                                                  : "256 (indexed)";
+        std::cout << "  Colors: " << cinfo << "\n";
         std::cout << "Audio:\n";
         if (info.audio.has_audio) {
             std::cout << "  Present: yes\n";
             std::cout << "  Codec: " << codec_name(info.audio.codec_id) << "\n";
             std::cout << "  Sample rate: " << info.audio.sample_rate << " Hz\n";
+            const char* ch_type = info.audio.channels == 1 ? "mono" : "stereo";
             std::cout << "  Channels: " << int(info.audio.channels)
-                      << " (" << (info.audio.channels == 1 ? "mono" : "stereo") << ")\n";
+                      << " (" << ch_type << ")\n";
             std::cout << "  Bit depth: " << int(info.audio.bits) << "-bit\n";
         } else {
             std::cout << "  Present: no\n";
@@ -372,16 +393,16 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cout << "Usage: vqa-tool export <file.vqa> [--quality N] [-o output.mp4]\n"
-                      << "       vqa-tool export <file.vqa> --frames [-o output_prefix]\n"
-                      << "       vqa-tool export <file.vqa> --wav [-o output.wav]\n"
+            std::cout << "Usage: vqa-tool export <file.vqa> [options]\n"
+                      << "       vqa-tool export <file> --frames [-o pfx]\n"
+                      << "       vqa-tool export <file> --wav [-o out]\n"
                       << "\n"
                       << "Options:\n"
-                      << "    --mp4           Export as MP4 (default, requires ffmpeg)\n"
-                      << "    --quality <N>   Quality: high/medium/low or CRF 0-51 (default: 18)\n"
+                      << "    --mp4           MP4 output (dflt, needs ffmpeg)\n"
+                      << "    --quality <N>   high/medium/low or CRF 0-51\n"
                       << "    --frames        Export as PNG sequence + WAV\n"
                       << "    --wav           Export audio only as WAV\n"
-                      << "    -o, --output    Output path (default: input name + .mp4)\n"
+                      << "    -o, --output    Output path (dflt: input+.mp4)\n"
                       << "    -f, --force     Overwrite existing files\n";
             return 0;
         }
@@ -420,7 +441,8 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
             } else {
                 quality = std::atoi(qval);
                 if (quality < 0 || quality > 51) {
-                    std::cerr << "vqa-tool: error: quality must be high/medium/low or 0-51\n";
+                    std::cerr << "vqa-tool: error: quality must be "
+                              << "high/medium/low or 0-51\n";
                     return 1;
                 }
             }
@@ -482,7 +504,8 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
     // For MP4 mode (default when not frames or wav), check ffmpeg availability
     bool need_ffmpeg = !frames_mode && !wav_only;
     if (need_ffmpeg && !ffmpeg_available()) {
-        std::cerr << "vqa-tool: error: ffmpeg not found in PATH; use --frames for PNG+WAV output\n";
+        std::cerr << "vqa-tool: error: ffmpeg not found; "
+                  << "use --frames for PNG+WAV output\n";
         return 1;
     }
 
@@ -532,22 +555,25 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
 
     if (frames_mode) {
         // PNG sequence + WAV mode
-        int digits = std::max(3, static_cast<int>(std::ceil(std::log10(frames.size() + 1))));
+        double log_val = std::log10(frames.size() + 1);
+        int digits = std::max(3, static_cast<int>(std::ceil(log_val)));
 
         for (size_t i = 0; i < frames.size(); ++i) {
             std::ostringstream oss;
-            oss << output_path << "_" << std::setfill('0') << std::setw(digits) << i << ".png";
+            oss << output_path << "_" << std::setfill('0')
+                << std::setw(digits) << i << ".png";
             std::string frame_path = oss.str();
 
             if (!force && std::filesystem::exists(frame_path)) {
-                std::cerr << "vqa-tool: error: output file exists: " << frame_path
-                          << " (use --force to overwrite)\n";
+                std::cerr << "vqa-tool: error: output exists: "
+                          << frame_path << " (use --force)\n";
                 return 1;
             }
 
             if (!write_png_rgb(frame_path, frames[i].rgb.data(),
                               frames[i].width, frames[i].height)) {
-                std::cerr << "vqa-tool: error: failed to write " << frame_path << "\n";
+                std::cerr << "vqa-tool: error: failed to write "
+                          << frame_path << "\n";
                 return 1;
             }
         }
@@ -556,19 +582,21 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
         if (!audio_samples.empty()) {
             std::string wav_path = output_path + ".wav";
             if (!force && std::filesystem::exists(wav_path)) {
-                std::cerr << "vqa-tool: error: output file exists: " << wav_path
-                          << " (use --force to overwrite)\n";
+                std::cerr << "vqa-tool: error: output exists: "
+                          << wav_path << " (use --force)\n";
                 return 1;
             }
 
             if (!write_wav(wav_path, audio_samples,
                           info.audio.sample_rate, info.audio.channels)) {
-                std::cerr << "vqa-tool: error: failed to write " << wav_path << "\n";
+                std::cerr << "vqa-tool: error: failed to write "
+                          << wav_path << "\n";
                 return 1;
             }
         }
 
-        std::cout << "Exported " << frames.size() << " frames to " << output_path << "_*.png";
+        std::cout << "Exported " << frames.size() << " frames to "
+                  << output_path << "_*.png";
         if (!audio_samples.empty()) {
             std::cout << " and " << output_path << ".wav";
         }
@@ -590,15 +618,18 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
         if (to_stdout) {
             // Write WAV to stdout
             std::ios_base::sync_with_stdio(false);
-            if (!write_wav_stream(std::cout, audio_samples,
-                                  info.audio.sample_rate, info.audio.channels)) {
+            uint32_t rate = info.audio.sample_rate;
+            uint8_t ch = info.audio.channels;
+            if (!write_wav_stream(std::cout, audio_samples, rate, ch)) {
                 std::cerr << "vqa-tool: error: failed to write to stdout\n";
                 return 3;
             }
         } else {
-            if (!write_wav(output_path, audio_samples,
-                          info.audio.sample_rate, info.audio.channels)) {
-                std::cerr << "vqa-tool: error: failed to write " << output_path << "\n";
+            uint32_t rate = info.audio.sample_rate;
+            uint8_t ch = info.audio.channels;
+            if (!write_wav(output_path, audio_samples, rate, ch)) {
+                std::cerr << "vqa-tool: error: failed to write "
+                          << output_path << "\n";
                 return 3;
             }
             std::cout << "Exported audio to " << output_path << "\n";
@@ -618,10 +649,12 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
         std::filesystem::create_directories(temp_dir);
 
         // Write frames as PNG
-        int digits = std::max(3, static_cast<int>(std::ceil(std::log10(frames.size() + 1))));
+        double log_val = std::log10(frames.size() + 1);
+        int digits = std::max(3, static_cast<int>(std::ceil(log_val)));
         for (size_t i = 0; i < frames.size(); ++i) {
             std::ostringstream oss;
-            oss << temp_dir << "/frame_" << std::setfill('0') << std::setw(digits) << i << ".png";
+            oss << temp_dir << "/frame_" << std::setfill('0')
+                << std::setw(digits) << i << ".png";
             if (!write_png_rgb(oss.str(), frames[i].rgb.data(),
                               frames[i].width, frames[i].height)) {
                 std::cerr << "vqa-tool: error: failed to write temp frame\n";
@@ -660,7 +693,8 @@ static int cmd_export(int argc, char* argv[], bool verbose) {
 
         if (to_stdout) {
             // Output to stdout with explicit format
-            cmd << " -f mp4 -movflags frag_keyframe+empty_moov pipe:1 2>/dev/null";
+            cmd << " -f mp4 -movflags frag_keyframe+empty_moov";
+            cmd << " pipe:1 2>/dev/null";
         } else {
             cmd << " \"" << output_path << "\" 2>/dev/null";
         }
@@ -703,7 +737,9 @@ int main(int argc, char* argv[]) {
     // Check for verbose flag
     bool verbose = false;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "-v") == 0 || std::strcmp(argv[i], "--verbose") == 0) {
+        bool is_v = std::strcmp(argv[i], "-v") == 0;
+        is_v = is_v || std::strcmp(argv[i], "--verbose") == 0;
+        if (is_v) {
             verbose = true;
             break;
         }

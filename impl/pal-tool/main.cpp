@@ -23,6 +23,7 @@ static void print_usage(std::ostream& out = std::cout) {
               << "    -h, --help      Show help message\n"
               << "    -V, --version   Show version\n"
               << "    -v, --verbose   Verbose output\n"
+              << "    -q, --quiet     Quiet mode (suppress non-error output)\n"
               << "    -o, --output    Output file path\n"
               << "    -f, --force     Overwrite existing files\n"
               << "    --json          Output info in JSON format\n";
@@ -86,13 +87,15 @@ static int cmd_info(int argc, char* argv[]) {
         std::cout << "{\n";
         std::cout << "  \"format\": \"Westwood PAL\",\n";
         std::cout << "  \"colors\": " << info.entries << ",\n";
-        std::cout << "  \"bit_depth\": " << static_cast<int>(info.bit_depth) << ",\n";
+        int bd = static_cast<int>(info.bit_depth);
+        std::cout << "  \"bit_depth\": " << bd << ",\n";
         std::cout << "  \"file_size\": " << info.file_size << "\n";
         std::cout << "}\n";
     } else {
         std::cout << "Format:    Westwood PAL\n";
         std::cout << "Colors:    " << info.entries << "\n";
-        std::cout << "Bit depth: " << static_cast<int>(info.bit_depth) << "-bit per channel";
+        int bd = static_cast<int>(info.bit_depth);
+        std::cout << "Bit depth: " << bd << "-bit per channel";
         if (info.bit_depth == 6) {
             std::cout << " (18-bit color)";
         } else {
@@ -147,7 +150,9 @@ static bool write_png_swatch(std::ostream& out,
     init_crc_table();
 
     // PNG header
-    static const uint8_t png_sig[] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+    static const uint8_t png_sig[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+    };
 
     // Write PNG signature
     out.write(reinterpret_cast<const char*>(png_sig), 8);
@@ -220,7 +225,8 @@ static bool write_png_swatch(std::ostream& out,
         size_t block_size = std::min(size_t(65535), raw_data.size() - pos);
         bool is_final = (pos + block_size >= raw_data.size());
 
-        compressed.push_back(is_final ? 0x01 : 0x00);  // BFINAL + BTYPE=0 (stored)
+        // BFINAL + BTYPE=0 (stored)
+        compressed.push_back(is_final ? 0x01 : 0x00);
         uint16_t len = static_cast<uint16_t>(block_size);
         uint16_t nlen = ~len;
         compressed.push_back(len & 0xFF);
@@ -258,7 +264,8 @@ static int cmd_export(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
         if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-            std::cerr << "Usage: pal-tool export <file.pal> [-o output.png] [-f]\n";
+            std::cerr << "Usage: pal-tool export <file.pal> "
+                      << "[-o output.png] [-f]\n";
             return 0;
         }
         if (std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0) {
@@ -346,11 +353,13 @@ static int cmd_export(int argc, char* argv[]) {
     } else {
         std::ofstream out(output_path, std::ios::binary);
         if (!out) {
-            std::cerr << "pal-tool: error: cannot open: " << output_path << "\n";
+            std::cerr << "pal-tool: error: cannot open: "
+                      << output_path << "\n";
             return 3;
         }
         if (!write_png_swatch(out, reader)) {
-            std::cerr << "pal-tool: error: failed to write: " << output_path << "\n";
+            std::cerr << "pal-tool: error: failed to write: "
+                      << output_path << "\n";
             return 3;
         }
     }

@@ -39,7 +39,8 @@ struct CpsInfo {
 class CpsReader {
 public:
     static Result<std::unique_ptr<CpsReader>> open(const std::string& path);
-    static Result<std::unique_ptr<CpsReader>> open(std::span<const uint8_t> data);
+    static Result<std::unique_ptr<CpsReader>> open(
+        std::span<const uint8_t> data);
 
     ~CpsReader();
 

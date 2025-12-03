@@ -29,7 +29,9 @@ class TestVqaToolInfo:
         result = run(vqa_tool, "info", testdata_vqa_files[0])
         result.assert_success()
         # Should mention version or v1/v2/v3
-        assert "version" in result.stdout_text.lower() or "v2" in result.stdout_text.lower()
+        has_version = "version" in result.stdout_text.lower()
+        has_v2 = "v2" in result.stdout_text.lower()
+        assert has_version or has_v2
 
     def test_info_shows_dimensions(self, vqa_tool, testdata_vqa_files, run):
         """Test info shows video dimensions."""
@@ -55,7 +57,9 @@ class TestVqaToolInfo:
         result = run(vqa_tool, "info", testdata_vqa_files[0])
         result.assert_success()
         # Should mention audio or sample rate
-        assert "audio" in result.stdout_text.lower() or "hz" in result.stdout_text.lower()
+        has_audio = "audio" in result.stdout_text.lower()
+        has_hz = "hz" in result.stdout_text.lower()
+        assert has_audio or has_hz
 
     def test_info_json(self, vqa_tool, testdata_vqa_files, run):
         """Test info --json."""
@@ -76,7 +80,10 @@ class TestVqaToolExportAudio:
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "audio.wav"
-        result = run(vqa_tool, "export", "--wav", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--wav",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("WAV export not implemented")
         assert out_file.exists()
@@ -86,7 +93,10 @@ class TestVqaToolExportAudio:
 class TestVqaToolExportVideo:
     """Test vqa-tool video export."""
 
-    def test_export_mp4(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_export_mp4(
+        self, vqa_tool, testdata_vqa_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test exporting as MP4."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -101,7 +111,10 @@ class TestVqaToolExportVideo:
         data = out_file.read_bytes()
         assert b"ftyp" in data[:32]
 
-    def test_export_frames(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_export_frames(
+        self, vqa_tool, testdata_vqa_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test exporting video frames as PNGs."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -117,19 +130,27 @@ class TestVqaToolExportVideo:
 class TestVqaToolQuality:
     """Test quality options."""
 
-    def test_quality_high(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_quality_high(
+        self, vqa_tool, testdata_vqa_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test --quality high option."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         out_file = temp_dir / "high.mp4"
         pal_args = ["-p", testdata_pal_files[0]] if testdata_pal_files else []
-        result = run(vqa_tool, "export", "--mp4", "--quality", "high", *pal_args,
-                    testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4", "--quality", "high", *pal_args,
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         if result.returncode != 0:
             pytest.skip("Quality option not implemented")
         assert out_file.exists()
 
-    def test_quality_low(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_quality_low(
+        self, vqa_tool, testdata_vqa_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test --quality low option."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
@@ -145,13 +166,18 @@ class TestVqaToolQuality:
 class TestVqaToolPalette:
     """Test palette handling for v2 VQAs."""
 
-    def test_external_palette(self, vqa_tool, testdata_vqa_files, testdata_pal_files, run, temp_dir):
+    def test_external_palette(
+        self, vqa_tool, testdata_vqa_files,
+        testdata_pal_files, run, temp_dir
+    ):
         """Test using external palette for v2 VQA."""
         if not testdata_vqa_files or not testdata_pal_files:
             pytest.skip("No VQA or PAL files in testdata")
         out_file = temp_dir / "frame.png"
-        result = run(vqa_tool, "export", "--frames", "-p", testdata_pal_files[0],
-                    testdata_vqa_files[0], "-o", str(temp_dir / "frame"))
+        result = run(
+            vqa_tool, "export", "--frames", "-p", testdata_pal_files[0],
+            testdata_vqa_files[0], "-o", str(temp_dir / "frame")
+        )
         if result.returncode != 0:
             pytest.skip("Export not implemented")
 
@@ -170,17 +196,25 @@ class TestVqaToolErrors:
         result = run(vqa_tool, "info", bad_file)
         result.assert_exit_code(2)
 
-    def test_missing_ffmpeg(self, vqa_tool, testdata_vqa_files, run, temp_dir, monkeypatch):
+    def test_missing_ffmpeg(
+        self, vqa_tool, testdata_vqa_files,
+        run, temp_dir, monkeypatch
+    ):
         """Test graceful error when ffmpeg not available."""
         if not testdata_vqa_files:
             pytest.skip("No VQA files in testdata")
         # Remove ffmpeg from PATH
         monkeypatch.setenv("PATH", "/nonexistent")
         out_file = temp_dir / "video.mp4"
-        result = run(vqa_tool, "export", "--mp4", testdata_vqa_files[0], "-o", str(out_file))
+        result = run(
+            vqa_tool, "export", "--mp4",
+            testdata_vqa_files[0], "-o", str(out_file)
+        )
         # Should fail gracefully with clear message
         if result.returncode != 0:
-            assert "ffmpeg" in result.stderr_text.lower() or result.returncode in [1, 2, 3]
+            has_ffmpeg_msg = "ffmpeg" in result.stderr_text.lower()
+            has_expected_code = result.returncode in [1, 2, 3]
+            assert has_ffmpeg_msg or has_expected_code
 
 
 class TestVqaToolNoAudio:

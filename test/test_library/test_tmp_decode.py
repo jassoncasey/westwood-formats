@@ -61,7 +61,10 @@ class TestTmpHeaderParsing:
         import json
         data = json.loads(result.stdout_text)
         # Should have tile count info
-        assert any(k in data for k in ["tiles", "tileCount", "tile_count", "numTiles"])
+        assert any(
+            k in data for k in ["tiles", "tileCount", "tile_count",
+                                "numTiles"]
+        )
 
     def test_img_start_offset(self, tmp_tool, testdata_tmp_files, run):
         """Test ImgStart offset extraction."""
@@ -143,7 +146,8 @@ class TestTmpEmptyTiles:
 class TestTmpTileData:
     """Test tile pixel data extraction."""
 
-    def test_tile_dimensions_consistent(self, tmp_tool, testdata_tmp_files, run):
+    def test_tile_dimensions_consistent(
+            self, tmp_tool, testdata_tmp_files, run):
         """Test tile dimensions are reported consistently."""
         if not testdata_tmp_files:
             pytest.skip("No TMP files in testdata")
@@ -152,13 +156,17 @@ class TestTmpTileData:
         import json
         data = json.loads(result.stdout_text)
         # Tile dimensions should be present
-        width = data.get("tileWidth") or data.get("tile_width") or data.get("width", 0)
-        height = data.get("tileHeight") or data.get("tile_height") or data.get("height", 0)
+        width = (data.get("tileWidth") or data.get("tile_width") or
+                 data.get("width", 0))
+        height = (data.get("tileHeight") or data.get("tile_height") or
+                  data.get("height", 0))
         # RA tiles are typically 24x24
         assert width > 0
         assert height > 0
 
-    def test_tile_export(self, tmp_tool, testdata_tmp_files, testdata_pal_files, run, temp_dir):
+    def test_tile_export(
+            self, tmp_tool, testdata_tmp_files, testdata_pal_files, run,
+            temp_dir):
         """Test exporting tiles to PNG."""
         if not testdata_tmp_files:
             pytest.skip("No TMP files in testdata")
@@ -171,14 +179,17 @@ class TestTmpTileData:
         png_files = list(temp_dir.glob("*.png"))
         assert len(png_files) >= 1
 
-    def test_palette_required_for_export(self, tmp_tool, testdata_tmp_files, run, temp_dir):
+    def test_palette_required_for_export(
+            self, tmp_tool, testdata_tmp_files, run, temp_dir):
         """Test export requires palette file."""
         if not testdata_tmp_files:
             pytest.skip("No TMP files in testdata")
         # Export without palette should fail or warn
-        result = run(tmp_tool, "export", testdata_tmp_files[0], "-o", str(temp_dir / "tile.png"))
+        result = run(tmp_tool, "export", testdata_tmp_files[0], "-o",
+                     str(temp_dir / "tile.png"))
         # Either fails or uses default palette
-        # Just verify command completes (may succeed with embedded/default palette)
+        # Verify command completes (may succeed with embedded/default
+        # palette)
 
 
 class TestTmpInfoOutput:

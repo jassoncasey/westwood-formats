@@ -128,31 +128,41 @@ class TestWsaLoopFrame:
 class TestWsaFrameDecoding:
     """Test frame decoding (Format40 + LCW)."""
 
-    def test_first_frame_decode(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_first_frame_decode(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test decoding first frame."""
         if not testdata_wsa_files:
             pytest.skip("No WSA files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         # Export frames tests decoding
-        result = run(wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
-                    testdata_wsa_files[0], "-o", str(temp_dir / "frame.png"))
+        result = run(
+            wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
+            testdata_wsa_files[0], "-o", str(temp_dir / "frame.png")
+        )
         result.assert_success()
         png_files = list(temp_dir.glob("*.png"))
         assert len(png_files) >= 1
 
-    def test_delta_frame_decode(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_delta_frame_decode(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test decoding delta frame (XOR against previous)."""
         if not testdata_wsa_files:
             pytest.skip("No WSA files in testdata")
         if not testdata_pal_files:
             pytest.skip("No PAL files in testdata")
         # Export all frames - delta frames depend on previous
-        result = run(wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
-                    testdata_wsa_files[0], "-o", str(temp_dir / "frame.png"))
+        result = run(
+            wsa_tool, "export", "--frames", "-p", testdata_pal_files[0],
+            testdata_wsa_files[0], "-o", str(temp_dir / "frame.png")
+        )
         result.assert_success()
 
-    def test_cumulative_decoding(self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir):
+    def test_cumulative_decoding(
+        self, wsa_tool, testdata_wsa_files, testdata_pal_files, run, temp_dir
+    ):
         """Test cumulative frame buffer updates."""
         if not testdata_wsa_files:
             pytest.skip("No WSA files in testdata")
