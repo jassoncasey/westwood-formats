@@ -297,13 +297,56 @@ shp-tool export tank.shp -p pal.pal --frames -o frames/tank
 | Linux (x86_64) | Should work | Requires C++23 compiler |
 | Windows | Should work | MSVC 2022+ or Clang |
 
-## Documentation
+## Project Organization
+
+```
+.
+├── README.md                 # This file
+├── LICENSE                   # Apache 2.0
+├── impl/                     # C++ implementation
+│   ├── CMakeLists.txt        # Build configuration
+│   ├── libwestwood/          # Core library
+│   │   ├── include/westwood/ # Public headers
+│   │   └── src/              # Implementation
+│   ├── *-tool/               # CLI tools (11 directories)
+│   │   └── main.cpp          # Tool entry point
+│   └── build/                # Build output (generated)
+├── test/                     # Python test suite
+│   ├── conftest.py           # Pytest fixtures and helpers
+│   ├── test_cli/             # CLI tool tests
+│   ├── test_library/         # Library algorithm tests
+│   ├── test_output/          # Export format validation
+│   ├── test_integration/     # End-to-end tests
+│   └── testdata/             # Test-specific fixtures
+├── testdata/                 # Extracted test assets (generated)
+├── scripts/                  # Setup and utility scripts
+├── data/                     # Static data (hash tables, etc.)
+└── reference/                # Reference implementations (not in git)
+```
+
+### Documentation Files
 
 | File | Description |
 |------|-------------|
-| [tool-specs.md](tool-specs.md) | CLI interface specification |
-| [westwood-formats.md](westwood-formats.md) | Media format documentation (VQA, AUD, SHP, etc.) |
-| [xcc.md](xcc.md) | Archive format details (MIX, BIG) |
+| [tool-specs.md](tool-specs.md) | CLI interface specification (flags, exit codes, I/O) |
+| [westwood-formats.md](westwood-formats.md) | Media format documentation (VQA, AUD, SHP, WSA, etc.) |
+| [xcc.md](xcc.md) | Archive format details (MIX variants, BIG, Blowfish) |
+| [test/test.md](test/test.md) | Test suite organization and coverage |
+
+### Build Outputs
+
+After building, `impl/build/` contains:
+- `libwestwood.a` - Static library
+- `*-tool` - 11 CLI executables
+
+### Test Organization
+
+| Directory | Purpose |
+|-----------|---------|
+| `test_cli/` | Tests each CLI tool's flags, inputs, outputs |
+| `test_library/` | Tests core algorithms (LCW, Format40, ADPCM) |
+| `test_output/` | Validates export formats (PNG, WAV, GIF, MP4) |
+| `test_integration/` | End-to-end workflows (extract, convert, verify) |
 
 ## TODO
 
