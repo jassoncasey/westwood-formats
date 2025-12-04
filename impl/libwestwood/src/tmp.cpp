@@ -189,13 +189,12 @@ static Result<void> validate_tdra_header(const TmpInfo& info) {
     if (info.tile_width == 0 || info.tile_height == 0)
         return std::unexpected(
             make_error(ErrorCode::CorruptHeader, "TMP size"));
-    if (info.tile_count == 0)
-        return std::unexpected(
-            make_error(ErrorCode::CorruptHeader, "no tiles"));
+    // tile_count validated separately via index table size
     return {};
 }
 
 // Parse TD/RA tile index
+// Index table contains 1-byte entries: 0-254 = tile index, 255 = empty
 static uint16_t parse_tdra_tiles(TmpReaderImpl& impl, const uint8_t* index) {
     uint32_t tile_size = impl.info.tile_width * impl.info.tile_height;
     impl.tiles.reserve(impl.info.tile_count);
@@ -203,10 +202,19 @@ static uint16_t parse_tdra_tiles(TmpReaderImpl& impl, const uint8_t* index) {
 
     for (uint32_t i = 0; i < impl.info.tile_count; ++i) {
         TmpTileInfo tile{};
-        tile.offset = read_u32(index + i * 4);
+        uint8_t tile_idx = index[i];  // 1-byte index, not 4-byte offset
         tile.size = tile_size;
-        tile.valid = (tile.offset != 0);
-        if (!tile.valid) empty_count++;
+
+        if (tile_idx == 255) {
+            // Empty tile marker
+            tile.offset = 0;
+            tile.valid = false;
+            empty_count++;
+        } else {
+            // Calculate offset: ImgStart + TileIndex * tile_size
+            tile.offset = impl.info.image_start + tile_idx * tile_size;
+            tile.valid = true;
+        }
         impl.tiles.push_back(tile);
     }
     return empty_count;
@@ -223,18 +231,25 @@ static Result<void> parse_tmp_tdra(TmpReaderImpl& impl,
 
     impl.info.tile_width = read_u16(p);
     impl.info.tile_height = read_u16(p + 2);
-    impl.info.tile_count = read_u32(p + 4);
-    impl.info.index_start = read_u32(p + 28);
-    impl.info.index_end = read_u32(p + 32);
-    impl.info.image_start = read_u32(p + 36);
+    // Note: Header field at offset 4 is uint16 TileCount, but we derive
+    // actual count from index table size for robustness
+    impl.info.image_start = read_u32(p + 16);   // Offset to pixel data
+    impl.info.index_end = read_u32(p + 28);     // End of index table
+    impl.info.index_start = read_u32(p + 36);   // Start of index table
     impl.info.file_size = static_cast<uint32_t>(data.size());
+
+    // Index table contains 1-byte entries, count = IndexEnd - IndexStart
+    size_t index_size = impl.info.index_end - impl.info.index_start;
+    if (index_size == 0 || index_size > 256)
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "TMP index size"));
+    impl.info.tile_count = static_cast<uint16_t>(index_size);
     impl.info.template_width = 1;
     impl.info.template_height = impl.info.tile_count;
 
     auto v = validate_tdra_header(impl.info);
     if (!v) return v;
 
-    size_t index_size = impl.info.index_end - impl.info.index_start;
     if (impl.info.index_start + index_size > data.size())
         return std::unexpected(make_error(ErrorCode::CorruptIndex, "TMP idx"));
 
