@@ -3,9 +3,42 @@
 #include <westwood/io.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 
 namespace wwd {
+
+// D2: detect offset size (2 or 4 bytes) from header
+static int d2_detect_offset_size(const uint8_t* p) {
+    uint32_t test = read_u32(p + 2);
+    return (test & 0xFF0000) ? 2 : 4;
+}
+
+// D2: read offset at position (2 or 4 byte)
+static uint32_t d2_read_offset(const uint8_t* p, int size) {
+    return (size == 2) ? read_u16(p) : read_u32(p);
+}
+
+// D2 format detection (from OpenRA ShpD2Loader.cs)
+static bool is_valid_d2_shp(std::span<const uint8_t> data) {
+    if (data.size() < 4) return false;
+
+    uint16_t frame_count = read_u16(data.data());
+    if (frame_count == 0) return false;
+
+    int off_size = d2_detect_offset_size(data.data());
+    size_t eof_pos = 2 + static_cast<size_t>(off_size) * frame_count;
+    if (eof_pos + off_size > data.size()) return false;
+
+    uint32_t eof = d2_read_offset(data.data() + eof_pos, off_size);
+    if (eof + 2 != data.size()) return false;
+
+    uint32_t first_off = d2_read_offset(data.data() + 2, off_size);
+    if (first_off + 4 > data.size()) return false;
+
+    uint16_t flags = read_u16(data.data() + first_off + 2);
+    return flags <= 3 || flags == 5;
+}
 
 struct ShpReaderImpl {
     ShpInfo info{};
@@ -107,7 +140,74 @@ static Result<void> parse_shp_td(ShpReaderImpl& impl,
     return {};
 }
 
-// RLE-Zero decompression for TS/RA2 SHP
+// D2: read offset table into vector
+static std::vector<uint32_t> d2_read_offsets(
+    const uint8_t* p, uint16_t count, int off_size)
+{
+    std::vector<uint32_t> offsets;
+    offsets.reserve(count + 1);
+    size_t pos = 2;
+    for (uint16_t i = 0; i <= count; ++i) {
+        offsets.push_back(d2_read_offset(p + pos, off_size));
+        pos += off_size;
+    }
+    return offsets;
+}
+
+// D2: parse single frame header (10 bytes at offset+2)
+static ShpFrameInfo d2_parse_frame(const uint8_t* fp, size_t frame_pos) {
+    ShpFrameInfo f{};
+    f.format = read_u16(fp);
+    f.width = read_u16(fp + 3);
+    f.height = fp[5];
+    f.offset_x = 0;
+    f.offset_y = 0;
+    f.data_offset = static_cast<uint32_t>(frame_pos);
+    f.data_size = read_u16(fp + 6) + 10;
+    f.ref_offset = 0;
+    return f;
+}
+
+// Parse D2 SHP format (Dune 2, some Red Alert assets like MOUSE.SHP)
+static Result<void> parse_shp_d2(ShpReaderImpl& impl,
+                                  std::span<const uint8_t> data) {
+    if (data.size() < 4)
+        return std::unexpected(make_error(ErrorCode::CorruptHeader, "SHP D2"));
+
+    const uint8_t* p = data.data();
+    uint16_t count = read_u16(p);
+    int off_size = d2_detect_offset_size(p);
+
+    impl.info.format = ShpFormat::D2;
+    impl.info.frame_count = count;
+    impl.info.file_size = static_cast<uint32_t>(data.size());
+    impl.info.offset_size = static_cast<uint8_t>(off_size);
+    impl.info.lcw_frames = count;
+    impl.info.xor_frames = 0;
+
+    auto offsets = d2_read_offsets(p, count, off_size);
+    uint16_t max_w = 0, max_h = 0;
+    impl.frames.reserve(count);
+
+    for (uint16_t i = 0; i < count; ++i) {
+        size_t pos = offsets[i] + 2;
+        if (pos + 10 > data.size())
+            return std::unexpected(
+                make_error(ErrorCode::CorruptIndex, "D2 frame"));
+        auto f = d2_parse_frame(p + pos, pos);
+        if (f.width > max_w) max_w = f.width;
+        if (f.height > max_h) max_h = f.height;
+        impl.frames.push_back(f);
+    }
+
+    impl.info.max_width = max_w;
+    impl.info.max_height = max_h;
+    impl.info.delta_buffer_size = max_w * max_h;
+    impl.data.assign(data.begin(), data.end());
+    return {};
+}
+
+// RLE-Zero decompression for TS/RA2 SHP and D2
 // Format: 0x00 + count = run of zeros, other bytes = literal
 static Result<std::vector<uint8_t>> rle_zero_decompress(
     std::span<const uint8_t> src, size_t expected_size)
@@ -209,18 +309,28 @@ static Result<void> parse_shp_ts(ShpReaderImpl& impl,
 
 static Result<void> parse_shp(ShpReaderImpl& impl,
                                std::span<const uint8_t> data) {
-    if (data.size() < 14) {
+    if (data.size() < 4) {
         return std::unexpected(
             make_error(ErrorCode::CorruptHeader, "SHP file too small"));
     }
 
-    // Detect format by checking if it's a TS SHP
+    // Detection order: TS, D2, TD (from most specific to fallback)
     // TS SHP starts with 0x00 0x00 at offset 0
-    // TD SHP has frame count at offset 0 (non-zero)
     uint16_t first_word = read_u16(data.data());
 
     if (first_word == 0) {
         return parse_shp_ts(impl, data);
+    }
+
+    // D2 format: EOF + 2 == file_size, format flag 0-3 or 5
+    if (is_valid_d2_shp(data)) {
+        return parse_shp_d2(impl, data);
+    }
+
+    // TD format: fallback (requires at least 14 bytes)
+    if (data.size() < 14) {
+        return std::unexpected(
+            make_error(ErrorCode::CorruptHeader, "SHP file too small"));
     }
 
     return parse_shp_td(impl, data);
@@ -277,6 +387,66 @@ static std::vector<uint8_t> decode_raw_frame(
     return output;
 }
 
+// D2: init identity palette with default shadow remapping
+static std::array<uint8_t, 256> d2_init_palette() {
+    std::array<uint8_t, 256> t;
+    for (int i = 0; i < 256; ++i) t[i] = static_cast<uint8_t>(i);
+    t[1] = 0x7F; t[2] = 0x7E; t[3] = 0x7D; t[4] = 0x7C;
+    return t;
+}
+
+// D2: read palette table from data, return bytes consumed
+static size_t d2_read_palette(
+    std::span<const uint8_t> data, uint16_t flags, std::array<uint8_t,256>& t)
+{
+    constexpr uint16_t kHas = 1, kVar = 4;
+    if (!(flags & kHas) || data.empty()) return 0;
+
+    if (flags & kVar) {
+        size_t n = data[0], c = 1;
+        for (size_t i = 0; i < n && c < data.size(); ++i) t[i] = data[c++];
+        return c;
+    }
+    size_t n = std::min<size_t>(16, data.size());
+    for (size_t i = 0; i < n; ++i) t[i] = data[i];
+    return n;
+}
+
+// D2: decompress frame data (LCW optional, then RLE-zero)
+static Result<std::vector<uint8_t>> d2_decompress(
+    std::span<const uint8_t> src, size_t frame_size, bool use_lcw)
+{
+    std::vector<uint8_t> tmp;
+    if (use_lcw) {
+        auto r = lcw_decompress(src, frame_size * 2);
+        if (!r) return std::unexpected(r.error());
+        tmp = std::move(*r);
+    } else {
+        tmp.assign(src.begin(), src.end());
+    }
+    return rle_zero_decompress(std::span(tmp), frame_size);
+}
+
+// Decode D2 frame: LCW + RLE-zero + palette lookup
+static Result<std::vector<uint8_t>> decode_d2_frame(
+    std::span<const uint8_t> data, uint16_t w, uint8_t h, uint16_t flags)
+{
+    if (data.size() < 10)
+        return std::unexpected(make_error(ErrorCode::CorruptData, "D2"));
+
+    auto pal = d2_init_palette();
+    auto post = data.subspan(10);
+    size_t consumed = d2_read_palette(post, flags, pal);
+    auto compressed = post.subspan(std::min(consumed, post.size()));
+
+    bool use_lcw = !(flags & 2);
+    auto pixels = d2_decompress(compressed, size_t(w) * h, use_lcw);
+    if (!pixels) return pixels;
+
+    for (auto& p : *pixels) p = pal[p];
+    return pixels;
+}
+
 // Decode TD/RA frame based on format flags
 static Result<std::vector<uint8_t>> decode_td_frame(
     std::span<const uint8_t> data, size_t frame_size,
@@ -303,8 +473,15 @@ Result<std::vector<uint8_t>> ShpReader::decode_frame(
     const auto& frame = impl_->frames[frame_index];
     const auto& info = impl_->info;
 
-    size_t w = (info.format == ShpFormat::TS) ? frame.width : info.max_width;
-    size_t h = (info.format == ShpFormat::TS) ? frame.height : info.max_height;
+    // D2 and TS have per-frame dimensions, TD uses global dimensions
+    size_t w, h;
+    if (info.format == ShpFormat::TS || info.format == ShpFormat::D2) {
+        w = frame.width;
+        h = frame.height;
+    } else {
+        w = info.max_width;
+        h = info.max_height;
+    }
     size_t frame_size = w * h;
 
     if (frame_size == 0 || frame.data_size == 0)
@@ -322,10 +499,15 @@ Result<std::vector<uint8_t>> ShpReader::decode_frame(
                                    frame.data_size);
 
     Result<std::vector<uint8_t>> result;
-    if (info.format == ShpFormat::TS)
+    if (info.format == ShpFormat::TS) {
         result = decode_ts_frame(data, frame_size);
-    else
+    } else if (info.format == ShpFormat::D2) {
+        result = decode_d2_frame(data, frame.width,
+                                  static_cast<uint8_t>(frame.height),
+                                  frame.format);
+    } else {
         result = decode_td_frame(data, frame_size, frame.format, delta_buffer);
+    }
 
     if (!result) return result;
 

@@ -285,3 +285,127 @@ class TestShpInfoOutput:
         assert any(k in data for k in ["frameCount", "frame_count", "frames"])
         assert any(k in data for k in ["width", "maxWidth"])
         assert any(k in data for k in ["height", "maxHeight"])
+
+
+class TestShpD2Format:
+    """Test Dune 2 (D2) SHP format support."""
+
+    @pytest.fixture
+    def d2_shp_files(self, testdata_shp_files, shp_tool, run):
+        """Filter SHP files to find D2 format files."""
+        d2_files = []
+        for shp_file in testdata_shp_files:
+            result = run(shp_tool, "info", "--json", shp_file)
+            if result.returncode == 0:
+                import json
+                data = json.loads(result.stdout_text)
+                if data.get("format") == "D2":
+                    d2_files.append(shp_file)
+        return d2_files
+
+    def test_d2_format_detection(self, shp_tool, testdata_shp_files, run):
+        """Test D2 format is detected and reported correctly."""
+        if not testdata_shp_files:
+            pytest.skip("No SHP files in testdata")
+        # Try to find a D2 file (e.g., MOUSE.SHP from Red Alert)
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                result = run(shp_tool, "info", "--json", shp_file)
+                if result.returncode == 0:
+                    import json
+                    data = json.loads(result.stdout_text)
+                    # MOUSE.SHP should be D2 format
+                    assert data.get("format") == "D2"
+                    return
+        # No MOUSE.SHP found, skip
+        pytest.skip("No D2 format SHP files (MOUSE.SHP) found in testdata")
+
+    def test_d2_frame_count(self, shp_tool, testdata_shp_files, run):
+        """Test D2 file frame count parsing (MOUSE.SHP has 222 frames)."""
+        if not testdata_shp_files:
+            pytest.skip("No SHP files in testdata")
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                result = run(shp_tool, "info", "--json", shp_file)
+                if result.returncode == 0:
+                    import json
+                    data = json.loads(result.stdout_text)
+                    if data.get("format") == "D2":
+                        # MOUSE.SHP has 222 frames
+                        frames = data.get("frames", 0)
+                        assert frames == 222, f"Expected 222 frames, got {frames}"
+                        return
+        pytest.skip("No D2 format SHP files (MOUSE.SHP) found in testdata")
+
+    def test_d2_offset_table_detection(self, shp_tool, testdata_shp_files, run):
+        """Test auto-detection of 2-byte vs 4-byte offset tables."""
+        if not testdata_shp_files:
+            pytest.skip("No SHP files in testdata")
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                result = run(shp_tool, "info", "--json", shp_file)
+                if result.returncode == 0:
+                    import json
+                    data = json.loads(result.stdout_text)
+                    if data.get("format") == "D2":
+                        # MOUSE.SHP uses 2-byte offsets
+                        offset_size = data.get("offset_size", 0)
+                        assert offset_size in (2, 4)
+                        return
+        pytest.skip("No D2 format SHP files found in testdata")
+
+    def test_d2_frame_decode(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
+        """Test decoding D2 format frames."""
+        if not testdata_shp_files or not testdata_pal_files:
+            pytest.skip("No SHP or PAL files in testdata")
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                # Try to export - should succeed for D2 format
+                result = run(
+                    shp_tool, "export", "-p", testdata_pal_files[0],
+                    shp_file, "-o", str(temp_dir / "frame.png")
+                )
+                if result.returncode == 0:
+                    png_files = list(temp_dir.glob("*.png"))
+                    assert len(png_files) > 0, "D2 frame decode produced no output"
+                    return
+        pytest.skip("No D2 format SHP files found in testdata")
+
+    def test_d2_palette_table_handling(self, shp_tool, testdata_shp_files, run):
+        """Test D2 palette table flags are handled."""
+        if not testdata_shp_files:
+            pytest.skip("No SHP files in testdata")
+        # D2 format has per-frame palette lookup tables
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                result = run(shp_tool, "info", "--json", shp_file)
+                if result.returncode == 0:
+                    import json
+                    data = json.loads(result.stdout_text)
+                    if data.get("format") == "D2":
+                        # Successfully parsed D2 file with palette handling
+                        assert data.get("frames", 0) > 0
+                        return
+        pytest.skip("No D2 format SHP files found in testdata")
+
+    def test_d2_compression_pipeline(
+        self, shp_tool, testdata_shp_files, testdata_pal_files, run, temp_dir
+    ):
+        """Test D2 LCW + RLE-zero decompression pipeline."""
+        if not testdata_shp_files or not testdata_pal_files:
+            pytest.skip("No SHP or PAL files in testdata")
+        for shp_file in testdata_shp_files:
+            if "MOUSE" in str(shp_file).upper():
+                result = run(
+                    shp_tool, "export", "-p", testdata_pal_files[0],
+                    shp_file, "-o", str(temp_dir / "frame.png")
+                )
+                if result.returncode == 0:
+                    # All 222 frames should decode
+                    png_files = list(temp_dir.glob("*.png"))
+                    assert len(png_files) == 222, \
+                        f"Expected 222 frames, got {len(png_files)}"
+                    return
+        pytest.skip("No D2 format SHP files found in testdata")

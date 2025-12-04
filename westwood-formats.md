@@ -536,11 +536,16 @@ Sprite graphics format with multiple frames and optional compression.
 ### 4.1 Overview
 
 SHP files contain one or more sprite frames, palette-indexed with 256 colors.
-Two major format variants exist: TD/RA format and TS/RA2 format.
+Three format variants exist: D2 (Dune 2), TD/RA (Tiberian Dawn/Red Alert), and
+TS/RA2 (Tiberian Sun/Red Alert 2).
 
 **File signatures:**
-- TD/RA: No magic; identified by structure validation
 - TS/RA2: First two bytes are 0x0000
+- D2: EOF offset + 2 == file size, format flag 0-3 or 5
+- TD/RA: No magic; identified by structure validation
+
+**Detection order:** TS first (first_word == 0), then D2 (EOF validation), then
+TD (fallback). This order matters because D2 detection is more specific than TD.
 
 ### 4.2 TD/RA Format
 
@@ -587,7 +592,108 @@ Offset  Size  Type      Field           Description
 
 Last two entries are sentinels: first has file length at DataOffset, second is all zeros.
 
-### 4.3 TS/RA2 Format
+### 4.3 D2 Format (Dune 2)
+
+Dune 2 SHP format, also used by some Red Alert assets (e.g., MOUSE.SHP cursor
+sprites). Uses variable-width offset tables and a different compression pipeline.
+
+Reference: OpenRA ShpD2Loader.cs
+
+#### Format Detection
+
+```c
+bool is_shp_d2(span<const uint8_t> data) {
+    if (data.size() < 4) return false;
+
+    uint16_t frame_count = read_u16(data.data());
+    if (frame_count == 0) return false;
+
+    // Detect offset size: if byte 4 is non-zero, use 2-byte offsets
+    uint32_t test = read_u32(data.data() + 2);
+    int offset_size = (test & 0xFF0000) ? 2 : 4;
+
+    // EOF offset position
+    size_t eof_pos = 2 + offset_size * frame_count;
+    if (eof_pos + offset_size > data.size()) return false;
+
+    // Read EOF value
+    uint32_t eof = (offset_size == 2)
+        ? read_u16(data.data() + eof_pos)
+        : read_u32(data.data() + eof_pos);
+
+    // EOF + 2 must equal file size
+    if (eof + 2 != data.size()) return false;
+
+    // Check first frame format flag (must be 0-3 or 5)
+    size_t first_frame = ((offset_size == 2)
+        ? read_u16(data.data() + 2)
+        : read_u32(data.data() + 2)) + 2;
+    if (first_frame + 2 > data.size()) return false;
+
+    uint16_t format_flag = read_u16(data.data() + first_frame);
+    return format_flag <= 3 || format_flag == 5;
+}
+```
+
+#### File Header
+
+```
+Offset  Size  Type      Field           Description
+------  ----  ----      -----           -----------
+0       2     uint16    Frames          Number of frames in file
+2       N     varies    OffsetTable     Frame offsets (N = Frames + 1)
+```
+
+**Offset table:** Contains (Frames + 1) entries. Last entry is EOF offset.
+Entry size is auto-detected: 2 bytes if byte 4 is non-zero, else 4 bytes.
+
+#### Frame Header (at offset + 2)
+
+Each frame offset points to (frame_header - 2). Add 2 to get actual header:
+
+```
+Offset  Size  Type      Field           Description
+------  ----  ----      -----           -----------
+0       2     uint16    Flags           FormatFlags (see below)
+2       1     uint8     Slices          Ignored
+3       2     uint16    Width           Frame width in pixels
+5       1     uint8     Height          Frame height in pixels
+6       2     uint16    DataLeft        Compressed data size - 10
+8       2     uint16    DataSize        Uncompressed pixel count
+10      ...   uint8[]   PaletteTable    Color lookup (if PaletteTable flag)
+...     ...   uint8[]   PixelData       Compressed pixel data
+```
+
+#### FormatFlags Enum
+
+```c
+enum D2FormatFlags : uint16_t {
+    PaletteTable        = 1,  // Has color lookup table
+    NotLCWCompressed    = 2,  // Data is RLE-only, not LCW+RLE
+    VariableLengthTable = 4   // Palette table size is variable
+};
+```
+
+#### Palette Table
+
+Built per-frame based on flags:
+- If PaletteTable flag set: Read table from frame data
+- Otherwise: Identity table with indices 1-4 mapped to 0x7F-0x7C
+
+#### Decompression Pipeline
+
+```
+1. Read frame header
+2. Build palette lookup table
+3. Read compressed data (DataLeft bytes after header)
+4. If NOT NotLCWCompressed: LCW decompress first
+5. RLE-zero decompress to final pixels
+6. Apply palette lookup to each pixel
+```
+
+**RLE-Zero format:** Same as TS/RA2 (0x00 + count = run of zeros).
+
+### 4.4 TS/RA2 Format
 
 #### File Header (8 bytes)
 
@@ -617,18 +723,17 @@ Offset  Size  Type      Field       Description
 20      4     uint32    DataOffset  Offset to frame data (0 if empty)
 ```
 
-### 4.4 Compression Types
+### 4.5 Compression Types
 
-**Format80/LCW (TD/RA):** Lempel-Ziv style, see Section 10.1.
+**Format80/LCW (TD/RA, D2):** Lempel-Ziv style, see Section 11.1.
 
-**Format40/XOR Delta (TD/RA):** XOR against previous frame, see Section 10.2.
+**Format40/XOR Delta (TD/RA):** XOR against previous frame, see Section 11.2.
 
-**RLE-Zero (TS/RA2):** Per-line run-length encoding:
-- Each line starts with uint16 byte count
-- Value 0x00 triggers RLE: next byte is repeat count
+**RLE-Zero (TS/RA2, D2):** Run-length encoding for transparent pixels:
+- Value 0x00 triggers RLE: next byte is repeat count of zeros
 - Other values are literal palette indices
 
-### 4.5 Rendering Notes
+### 4.6 Rendering Notes
 
 - Palette index 0 is transparent
 - TS/RA2 frames may be smaller than full dimensions (use FrameX/Y offsets)

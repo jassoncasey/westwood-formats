@@ -10,12 +10,19 @@
 
 namespace wwd {
 
-enum class ShpFormat { TD, TS };  // TD/RA vs TS/RA2
+enum class ShpFormat { TD, TS, D2 };  // TD/RA, TS/RA2, Dune 2
 
 enum class ShpFrameFormat : uint8_t {
     LCW     = 0x80,  // LCW compressed
     XORPrev = 0x40,  // XOR with previous frame
     XORLCW  = 0x20   // XOR with reference frame, LCW compressed
+};
+
+// D2 format flags (per-frame)
+enum class D2FormatFlags : uint16_t {
+    PaletteTable        = 1,  // Has color lookup table
+    NotLCWCompressed    = 2,  // Data is RLE-only, not LCW+RLE
+    VariableLengthTable = 4   // Palette table size is variable
 };
 
 struct ShpFrameInfo {
@@ -38,6 +45,7 @@ struct ShpInfo {
     uint32_t  file_size;
     uint32_t  lcw_frames;   // count of LCW base frames
     uint32_t  xor_frames;   // count of XOR delta frames
+    uint8_t   offset_size;  // D2: 2 or 4 byte offsets (0 for non-D2)
 };
 
 class ShpReader {

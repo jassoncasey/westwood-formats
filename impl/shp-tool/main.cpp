@@ -45,16 +45,23 @@ static void print_version() {
 
 static const char* format_name(wwd::ShpFormat format) {
     switch (format) {
-        case wwd::ShpFormat::TD: return "TD/RA SHP";
-        case wwd::ShpFormat::TS: return "TS/RA2 SHP";
+        case wwd::ShpFormat::TD: return "TD";
+        case wwd::ShpFormat::TS: return "TS";
+        case wwd::ShpFormat::D2: return "D2";
         default:                  return "Unknown";
     }
 }
 
-static std::string frame_format_str(uint8_t fmt, wwd::ShpFormat shp_fmt) {
+static std::string frame_format_str(uint16_t fmt, wwd::ShpFormat shp_fmt) {
     if (shp_fmt == wwd::ShpFormat::TS) {
         return "RLE-Zero";
     }
+    if (shp_fmt == wwd::ShpFormat::D2) {
+        // D2 format flags: 1=PaletteTable, 2=NotLCW, 4=VarTable
+        bool not_lcw = (fmt & 2) != 0;
+        return not_lcw ? "RLE" : "LCW+RLE";
+    }
+    // TD format
     if (fmt & 0x80) return "LCW";
     if (fmt & 0x40) return "XORPrev";
     if (fmt & 0x20) return "XORLCW";
@@ -132,8 +139,12 @@ static int cmd_info(int argc, char* argv[]) {
         std::cout << "  \"delta_buffer\": " << info.delta_buffer_size << ",\n";
         std::cout << "  \"file_size\": " << info.file_size << ",\n";
         std::cout << "  \"lcw_frames\": " << info.lcw_frames << ",\n";
-        std::cout << "  \"xor_frames\": " << info.xor_frames << "\n";
-        std::cout << "}\n";
+        std::cout << "  \"xor_frames\": " << info.xor_frames;
+        if (info.format == wwd::ShpFormat::D2) {
+            std::cout << ",\n  \"offset_size\": "
+                      << static_cast<int>(info.offset_size);
+        }
+        std::cout << "\n}\n";
     } else {
         std::cout << "Format:       " << format_name(info.format) << "\n";
         std::cout << "Frames:       " << info.frame_count << "\n";
